@@ -687,6 +687,187 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
         except Exception as e:
             logger.error(f"Error getting email list: {e}")
             raise
+
+    async def store_gmail_message_locally(
+        self,
+        gmail_msg: Dict[str, Any],
+        user_email: str,
+        user_id: str,
+        db: AsyncIOMotorDatabase
+    ) -> Optional[EmailDocument]:
+        """Persist a Gmail message (plain or encrypted) into the local store if missing."""
+        try:
+            if not gmail_msg:
+                return None
+
+            gmail_message_id = gmail_msg.get('id') or gmail_msg.get('gmailMessageId') or ""
+            if not gmail_message_id:
+                return None
+            gmail_message_id = gmail_message_id.replace("gmail_", "", 1)
+
+            email_repo = EmailRepository(db)
+            existing_email = await email_repo.find_by_gmail_id(gmail_message_id)
+            if existing_email:
+                return existing_email
+
+            subject = gmail_msg.get('subject') or '(No subject)'
+            body_html = gmail_msg.get('bodyHtml')
+            body_text = gmail_msg.get('bodyText') or gmail_msg.get('snippet') or ''
+            if not body_text and body_html:
+                body_text = re.sub('<[^<]+?>', '', body_html)
+
+            sender_display = (
+                gmail_msg.get('sender')
+                or gmail_msg.get('from')
+                or gmail_msg.get('from_email')
+                or ''
+            )
+            recipient_display = gmail_msg.get('recipient') or user_email
+            sender_name, sender_email = parseaddr(sender_display)
+            receiver_name, receiver_email = parseaddr(recipient_display)
+            if not sender_email:
+                sender_email = sender_display or user_email
+            if not receiver_email:
+                receiver_email = recipient_display or user_email
+
+            metadata = {
+                'source': 'gmail',
+                'labels': gmail_msg.get('labels', []),
+                'threadId': gmail_msg.get('threadId'),
+                'messageIdHeader': gmail_msg.get('messageId'),
+                'snippet': gmail_msg.get('snippet'),
+                'hasAttachments': gmail_msg.get('hasAttachments', False),
+                'bodyText': body_text,
+                'bodyHtml': body_html,
+                'attachments': gmail_msg.get('attachments', []),
+                'gmailMessageId': gmail_message_id,
+                'senderDisplay': sender_display,
+                'receiverDisplay': recipient_display
+            }
+
+            custom_headers = gmail_msg.get('customHeaders', {}) or {}
+            is_qumail_encrypted = 'qumail encrypted' in subject.lower()
+            security_level = 0
+            encryption_algorithm = None
+            encryption_key_id = None
+            flow_id = None
+
+            if 'x-qumail-security-level' in custom_headers:
+                try:
+                    security_level = int(custom_headers['x-qumail-security-level'])
+                    is_qumail_encrypted = True
+                except ValueError:
+                    security_level = 1
+
+            if 'x-qumail-algorithm' in custom_headers:
+                encryption_algorithm = custom_headers['x-qumail-algorithm']
+
+            if 'x-qumail-key-id' in custom_headers:
+                encryption_key_id = custom_headers['x-qumail-key-id']
+
+            if 'x-qumail-flow-id' in custom_headers:
+                flow_id = custom_headers['x-qumail-flow-id']
+
+            if is_qumail_encrypted:
+                if not encryption_algorithm:
+                    algorithm_match = re.search(r'Algorithm:\s*(.+)', body_text)
+                    if algorithm_match:
+                        encryption_algorithm = algorithm_match.group(1).strip()
+
+                if not encryption_key_id:
+                    key_match = re.search(r'Key ID:\s*(.+)', body_text)
+                    if key_match:
+                        encryption_key_id = key_match.group(1).strip()
+
+                if not flow_id:
+                    flow_match = re.search(r'Flow ID:\s*(.+)', body_text)
+                    if flow_match:
+                        flow_id = flow_match.group(1).strip()
+
+            # Subject fallback for legacy formats (e.g., L2, etc.)
+            if not security_level and is_qumail_encrypted:
+                level_match = re.search(r'L(\d)', subject)
+                if level_match:
+                    security_level = int(level_match.group(1))
+                else:
+                    security_level = 1
+
+            if not flow_id:
+                flow_id = f"gmail:{gmail_message_id}"
+
+            if 'x-qumail-auth-tag' in custom_headers:
+                metadata['auth_tag'] = custom_headers['x-qumail-auth-tag']
+            if 'x-qumail-nonce' in custom_headers:
+                metadata['nonce'] = custom_headers['x-qumail-nonce']
+
+            metadata['sync_type'] = 'qumail_encrypted' if is_qumail_encrypted else 'gmail_plain'
+            if encryption_algorithm:
+                metadata['algorithm'] = encryption_algorithm
+            if security_level:
+                metadata['security_level'] = security_level
+            if sender_name:
+                metadata['senderName'] = sender_name
+            if receiver_name:
+                metadata['receiverName'] = receiver_name
+
+            # If this flow already exists, update metadata/Gmail ID and return the existing record
+            existing_flow = await email_repo.find_by_flow_id(flow_id)
+            if existing_flow:
+                updates: Dict[str, Any] = {
+                    "gmail_message_id": gmail_message_id,
+                    "encryption_metadata": metadata,
+                    "sender_email": existing_flow.sender_email or sender_email,
+                    "receiver_email": existing_flow.receiver_email or receiver_email
+                }
+                await email_repo.update(existing_flow.id, updates)
+                logger.info(
+                    "Flow %s already stored; metadata refreshed and Gmail ID linked",
+                    flow_id
+                )
+                return await email_repo.find_by_id(existing_flow.id)
+
+            timestamp = datetime.utcnow()
+            timestamp_str = gmail_msg.get('timestamp')
+            if timestamp_str:
+                try:
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                except Exception:
+                    pass
+
+            body_content = body_html or body_text or ''
+
+            email_doc = EmailDocument(
+                flow_id=flow_id,
+                user_id=str(user_id),
+                sender_email=sender_email,
+                receiver_email=receiver_email,
+                subject=subject,
+                body_encrypted=body_content,
+                security_level=security_level,
+                direction=EmailDirection.RECEIVED,
+                timestamp=timestamp,
+                is_read=gmail_msg.get('isRead', False),
+                is_starred=gmail_msg.get('isStarred', False),
+                is_suspicious=False,
+                gmail_message_id=gmail_message_id,
+                encryption_key_id=encryption_key_id,
+                encryption_algorithm=encryption_algorithm,
+                encryption_iv=metadata.get('nonce'),
+                encryption_auth_tag=metadata.get('auth_tag'),
+                encryption_metadata=metadata
+            )
+
+            await email_repo.create(email_doc)
+            logger.info(
+                "Stored Gmail message %s locally (security_level=%s)",
+                gmail_message_id,
+                security_level
+            )
+            return email_doc
+
+        except Exception as e:
+            logger.error(f"Failed to persist Gmail message locally: {e}")
+            return None
     
     async def sync_gmail_encrypted_emails(
         self,
@@ -719,148 +900,20 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
             if not user:
                 raise ValueError(f"User {user_email} not found in database")
 
-            email_repo = EmailRepository(db)
-            
             for gmail_msg in gmail_messages:
-                gmail_message_id = gmail_msg.get('id')
-                if not gmail_message_id:
-                    continue
-
-                # Skip if already stored locally
-                existing_email = await email_repo.find_by_gmail_id(gmail_message_id)
-                if existing_email:
-                    continue
-
-                subject = gmail_msg.get('subject') or '(No subject)'
-                body_html = gmail_msg.get('bodyHtml')
-                body_text = gmail_msg.get('bodyText') or gmail_msg.get('snippet') or ''
-                if not body_text and body_html:
-                    # Basic HTML to text fallback
-                    body_text = re.sub('<[^<]+?>', '', body_html)
-
-                sender_display = gmail_msg.get('sender') or gmail_msg.get('from') or gmail_msg.get('from_email') or ''
-                recipient_display = gmail_msg.get('recipient') or user_email
-                sender_name, sender_email = parseaddr(sender_display)
-                receiver_name, receiver_email = parseaddr(recipient_display)
-                if not sender_email:
-                    sender_email = sender_display
-                if not receiver_email:
-                    receiver_email = user_email
-
-                metadata = {
-                    'source': 'gmail',
-                    'labels': gmail_msg.get('labels', []),
-                    'threadId': gmail_msg.get('threadId'),
-                    'messageIdHeader': gmail_msg.get('messageId'),
-                    'snippet': gmail_msg.get('snippet'),
-                    'hasAttachments': gmail_msg.get('hasAttachments', False),
-                    'bodyText': body_text,
-                    'bodyHtml': body_html,
-                    'attachments': gmail_msg.get('attachments', []),
-                    'gmailMessageId': gmail_message_id
-                }
-                if sender_name:
-                    metadata['senderName'] = sender_name
-                metadata['senderDisplay'] = sender_display
-                if receiver_name:
-                    metadata['receiverName'] = receiver_name
-                metadata['receiverDisplay'] = recipient_display
-
-                is_qumail_encrypted = '[QuMail Encrypted' in subject
-                security_level = 0
-                encryption_algorithm = None
-                encryption_key_id = None
-                flow_id = None
-
-                if is_qumail_encrypted:
-                    encrypted_synced += 1
-                    
-                    # Try to get metadata from headers first (more reliable)
-                    custom_headers = gmail_msg.get('customHeaders', {})
-                    
-                    if 'x-qumail-security-level' in custom_headers:
-                        try:
-                            security_level = int(custom_headers['x-qumail-security-level'])
-                        except ValueError:
-                            security_level = 1
-                    else:
-                        # Fallback to subject parsing
-                        level_match = re.search(r'L(\d)', subject)
-                        if level_match:
-                            security_level = int(level_match.group(1))
-                        else:
-                            security_level = 1
-                            
-                    if 'x-qumail-algorithm' in custom_headers:
-                        encryption_algorithm = custom_headers['x-qumail-algorithm']
-                    else:
-                        # Fallback to body parsing
-                        algorithm_match = re.search(r'Algorithm:\s*(.+)', body_text)
-                        if algorithm_match:
-                            encryption_algorithm = algorithm_match.group(1).strip()
-                            
-                    if 'x-qumail-key-id' in custom_headers:
-                        encryption_key_id = custom_headers['x-qumail-key-id']
-                    else:
-                        # Fallback to body parsing
-                        key_match = re.search(r'Key ID:\s*(.+)', body_text)
-                        if key_match:
-                            encryption_key_id = key_match.group(1).strip()
-                            
-                    if 'x-qumail-flow-id' in custom_headers:
-                        flow_id = custom_headers['x-qumail-flow-id']
-                    else:
-                        # Fallback to body parsing
-                        flow_match = re.search(r'Flow ID:\s*(.+)', body_text)
-                        if flow_match:
-                            flow_id = flow_match.group(1).strip()
-                            
-                    # Store extra header metadata if available
-                    if 'x-qumail-auth-tag' in custom_headers:
-                        metadata['auth_tag'] = custom_headers['x-qumail-auth-tag']
-                    if 'x-qumail-nonce' in custom_headers:
-                        metadata['nonce'] = custom_headers['x-qumail-nonce']
-                        
-                    metadata['sync_type'] = 'qumail_encrypted'
-                else:
-                    metadata['sync_type'] = 'gmail_plain'
-
-                if not flow_id:
-                    flow_id = f"gmail:{gmail_message_id}"
-
-                timestamp_str = gmail_msg.get('timestamp')
-                timestamp = datetime.utcnow()
-                if timestamp_str:
-                    try:
-                        timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                    except Exception:
-                        pass
-
-                body_content = body_html or body_text or ''
-
-                email_doc = EmailDocument(
-                    flow_id=flow_id,
+                stored_email = await self.store_gmail_message_locally(
+                    gmail_msg=gmail_msg,
+                    user_email=user.email,
                     user_id=str(user.id),
-                    sender_email=sender_email,
-                    receiver_email=receiver_email,
-                    subject=subject,
-                    body_encrypted=body_content,
-                    security_level=security_level,
-                    direction=EmailDirection.RECEIVED,
-                    timestamp=timestamp,
-                    is_read=gmail_msg.get('isRead', False),
-                    is_starred=gmail_msg.get('isStarred', False),
-                    is_suspicious=False,
-                    gmail_message_id=gmail_message_id,
-                    encryption_key_id=encryption_key_id,
-                    encryption_algorithm=encryption_algorithm,
-                    encryption_iv=None,
-                    encryption_auth_tag=None,
-                    encryption_metadata=metadata
+                    db=db
                 )
 
-                await email_repo.create(email_doc)
+                if not stored_email:
+                    continue
+
                 synced_total += 1
+                if stored_email.security_level:
+                    encrypted_synced += 1
 
             return {
                 'success': True,

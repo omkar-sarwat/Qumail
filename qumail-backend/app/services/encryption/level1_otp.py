@@ -225,7 +225,11 @@ async def decrypt_otp(encrypted_content: str, user_email: str, metadata: Dict[st
         # Extract key ID from metadata
         key_id = metadata.get("key_id")
         flow_id = metadata.get("flow_id")
-        required_size = metadata.get("required_size")  # Original plaintext size
+        required_size = (
+            metadata.get("required_size")
+            or metadata.get("plaintext_size")
+            or metadata.get("original_size")
+        )
         auth_tag_b64 = metadata.get("auth_tag") # HMAC Tag
         
         logger.info("Key identifier:")
@@ -302,6 +306,14 @@ async def decrypt_otp(encrypted_content: str, user_email: str, metadata: Dict[st
         # Decode encrypted content
         logger.info("Decoding encrypted content from Base64...")
         encrypted_bytes = base64.b64decode(encrypted_content)
+        if required_size is None:
+            required_size = len(encrypted_bytes)
+            logger.warning(
+                "Missing required_size in metadata; defaulting to encrypted payload length (%s bytes)",
+                required_size
+            )
+        else:
+            required_size = int(required_size)
         logger.info(f"  Encrypted: {len(encrypted_bytes)} bytes, first 32 bytes: {encrypted_bytes[:32].hex()}")
 
         # Verify key size matches required size (L + 32)

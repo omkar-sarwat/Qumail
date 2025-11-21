@@ -272,7 +272,35 @@ async def get_email_details(
                 logger.info(f"   requires_decryption={email_details.get('requires_decryption')}")
                 logger.info(f"   decrypt_endpoint={email_details.get('decrypt_endpoint')}")
             else:
-                logger.warning(f"❌ No quantum record found for gmail_message_id: {gmail_id}")
+                logger.warning(f"❌ No quantum record found for gmail_message_id: {gmail_id} - attempting on-demand import")
+                stored_email = await complete_email_service.store_gmail_message_locally(
+                    gmail_msg=email_details,
+                    user_email=current_user.email,
+                    user_id=str(current_user.id),
+                    db=db
+                )
+
+                if stored_email:
+                    logger.info(f"✅ Imported Gmail message {gmail_id} into local store")
+                    metadata = _parse_metadata(stored_email.encryption_metadata)
+                    email_details.update({
+                        "email_id": stored_email.id,
+                        "flow_id": stored_email.flow_id,
+                        "body_encrypted": stored_email.body_encrypted,
+                        "security_level": stored_email.security_level,
+                        "security_info": {
+                            "level": stored_email.security_level,
+                            "algorithm": metadata.get("algorithm", stored_email.encryption_algorithm),
+                            "quantum_enhanced": metadata.get("quantum_enhanced", True),
+                            "encrypted_size": len(stored_email.body_encrypted or "")
+                        },
+                        "encryption_metadata": metadata,
+                        "requires_decryption": stored_email.security_level in [1, 2, 3, 4],
+                        "encrypted_size": len(stored_email.body_encrypted or ""),
+                        "decrypt_endpoint": f"/api/v1/emails/email/{stored_email.id}/decrypt"
+                    })
+                else:
+                    logger.error(f"Still cannot locate local record for Gmail message {gmail_id}")
 
             return email_details
         
@@ -676,7 +704,22 @@ async def decrypt_quantum_email(
             gmail_email = await email_repo.find_by_gmail_id(gmail_message_id)
 
             if not gmail_email:
-                logger.error(f"Gmail message {gmail_message_id} has no matching quantum record")
+                logger.warning(f"Gmail message {gmail_message_id} missing locally; attempting fetch + store")
+                if not current_user.oauth_access_token:
+                    logger.error("No Gmail OAuth token available to refetch message")
+                    raise HTTPException(status_code=404, detail="Encrypted Gmail message not found in local store")
+
+                access_token = await oauth_service.get_valid_access_token(current_user.email, db)
+                gmail_payload = await gmail_service.get_email_by_id(access_token, email_id)
+                gmail_email = await complete_email_service.store_gmail_message_locally(
+                    gmail_msg=gmail_payload,
+                    user_email=current_user.email,
+                    user_id=str(current_user.id),
+                    db=db
+                )
+
+            if not gmail_email:
+                logger.error(f"Gmail message {gmail_message_id} still missing after import attempt")
                 raise HTTPException(status_code=404, detail="Encrypted Gmail message not found in local store")
 
             resolved_email_id = gmail_email.id

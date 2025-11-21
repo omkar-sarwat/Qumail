@@ -109,6 +109,9 @@ class EmailRepository:
     async def find_by_gmail_id(self, gmail_message_id: str) -> Optional[EmailDocument]:
         """Find email by Gmail message ID."""
         doc = await self.collection.find_one({"gmail_message_id": gmail_message_id})
+        if not doc and not gmail_message_id.startswith("gmail_"):
+            prefixed_id = f"gmail_{gmail_message_id}"
+            doc = await self.collection.find_one({"gmail_message_id": prefixed_id})
         return EmailDocument(**doc) if doc else None
     
     async def list_by_user(
