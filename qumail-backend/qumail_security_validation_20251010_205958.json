@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-10-10T15:29:58.550434+00:00",
+  "overall_status": "UNKNOWN",
+  "security_levels_tested": [],
+  "one_time_key_tests": {},
+  "encryption_format_tests": {},
+  "qumail_exclusivity_tests": {},
+  "performance_tests": {},
+  "security_violations": [],
+  "recommendations": [],
+  "initialization_error": "OptimizedKMClient.__init__() got an unexpected keyword argument 'server_url'"
+}

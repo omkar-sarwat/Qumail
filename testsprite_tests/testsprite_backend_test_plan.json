@@ -1,0 +1,52 @@
+[
+  {
+    "id": "TC001",
+    "title": "test_root_endpoint_service_metadata",
+    "description": "Verify that the root endpoint '/' returns service metadata with HTTP 200 status and correct response schema."
+  },
+  {
+    "id": "TC002",
+    "title": "test_health_endpoint_status_check",
+    "description": "Verify that the '/health' endpoint returns the health status of the service with HTTP 200 status and valid health schema."
+  },
+  {
+    "id": "TC003",
+    "title": "test_post_enc_keys_request_encryption_keys",
+    "description": "Test the '/api/v1/keys/enc_keys' POST endpoint to ensure it returns the requested number of encryption keys linked to the specified master and slave SAE IDs, triggers synchronization with peer KMS, and responds within 2 seconds."
+  },
+  {
+    "id": "TC004",
+    "title": "test_post_dec_keys_request_decryption_keys",
+    "description": "Test the '/api/v1/keys/dec_keys' POST endpoint to ensure it returns the requested decryption keys marked as consumed, enforces no key reuse, and responds within 2 seconds."
+  },
+  {
+    "id": "TC005",
+    "title": "test_get_key_status_for_master_sae_id",
+    "description": "Verify the '/api/v1/keys/{master_sae_id}/status' GET endpoint returns correct stored key counts and size limits for the given master SAE ID with HTTP 200 status."
+  },
+  {
+    "id": "TC006",
+    "title": "test_post_kme_sync_receive_keys_for_synchronization",
+    "description": "Test the '/api/v1/kme/sync' POST endpoint to verify it accepts keys for synchronization from peer KMS with valid X-KMS-ID header and returns HTTP 200 status."
+  },
+  {
+    "id": "TC007",
+    "title": "test_post_kme_verify_keys_exist",
+    "description": "Test the '/api/v1/kme/verify' POST endpoint to confirm it verifies the existence of keys on the target KMS using the X-KMS-ID header and returns HTTP 200 status."
+  },
+  {
+    "id": "TC008",
+    "title": "test_get_kme_status",
+    "description": "Verify the '/api/v1/kme/status' GET endpoint returns the current KME status with HTTP 200 status and valid response schema."
+  },
+  {
+    "id": "TC009",
+    "title": "test_post_kme_pool_status",
+    "description": "Test the '/api/v1/kme/pool/status' POST endpoint to ensure it returns the current key pool status with HTTP 200 status."
+  },
+  {
+    "id": "TC010",
+    "title": "test_post_kme_pool_replenish",
+    "description": "Test the '/api/v1/kme/pool/replenish' POST endpoint to verify it triggers key pool replenishment and returns HTTP 200 status."
+  }
+]

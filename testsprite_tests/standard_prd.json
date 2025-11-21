@@ -1,0 +1,338 @@
+{
+  "meta": {
+    "project": "QuMail-KMS",
+    "date": "2025-10-29",
+    "prepared_by": "Software Development Manager"
+  },
+  "product_overview": "QuMail-KMS is a backend Key Management Service (KMS) implemented with FastAPI that handles secure quantum key distribution for encryption and decryption keys, supporting synchronization and verification between two local KMS instances, KMS-1 and KMS-2, running on different ports.",
+  "core_goals": [
+    "Provide reliable generation, distribution, and consumption of quantum encryption keys following ETSI QKD 014 standards.",
+    "Ensure robust health monitoring and status reporting of the KMS and key pools.",
+    "Enable secure and efficient synchronization and verification of keys between paired KMS instances.",
+    "Maintain strict key consumption rules ensuring one-time pad enforcement with no key reuse.",
+    "Guarantee high availability and operational stability with low latency under local test conditions."
+  ],
+  "key_features": [
+    "Root and health endpoints for service metadata and health status checks.",
+    "Encryption keys endpoint allowing clients to request new keys, triggering synchronization with peer KMS.",
+    "Decryption keys endpoint allowing clients to retrieve existing keys marked as consumed to prevent reuse.",
+    "Key status endpoint to query stored key counts and size limits per master SAE ID.",
+    "KME internal APIs for key synchronization, verification, status reporting, pool status, replenishment, and statistics aggregation.",
+    "Support for headers to identify master and slave SAE IDs and KMS IDs to ensure correct key pairing and synchronization.",
+    "Strict error handling for bad requests, unauthorized KMS sync attempts, missing keys on decryption, rate limiting, and unhandled server errors.",
+    "Non-functional requirements including sequential reliability with no hangs, connection hygiene to prevent socket buildup, and latency under 2 seconds per key operation."
+  ],
+  "user_flow_summary": [
+    "A client requests encryption keys from KMS-1 providing master and slave SAE IDs; KMS-1 generates or retrieves keys from the pool and returns them.",
+    "KMS-1 synchronizes these keys with peer KMS-2 via the internal /kme/sync API.",
+    "A client requests decryption keys from KMS-2 using the returned key IDs, swapping SAE IDs accordingly; KMS-2 returns these keys marking them as consumed, enforcing no reuse.",
+    "Clients or peer KMS services query health and status endpoints to monitor service health and key availability.",
+    "KMS instances perform internal pool status checks and replenish keys proactively.",
+    "Verification endpoints are used to confirm keys exist and have been synchronized correctly across KMS instances.",
+    "All operations can be repeated sequentially without service degradation or timeout, ensuring stability."
+  ],
+  "validation_criteria": [
+    "Health and status endpoints must respond with valid schema data and HTTP 200 status.",
+    "Encryption and decryption key requests must succeed returning correct keys linked to the specified SAE pairs.",
+    "Synchronizing keys between KMS-1 and KMS-2 must reflect accurate synced counts and status.",
+    "Verification API calls confirm all requested keys exist on the target KMS post-sync.",
+    "No socket leaks or connection buildup due to outbound HTTP requests including Connection: close header.",
+    "Latency for each encryption or decryption request must be under 2 seconds in test conditions.",
+    "Repeated key generation and consumption cycles (at least 10) complete without hangs or failures.",
+    "Consumed keys are never reissued, guaranteeing one-time pad use compliance.",
+    "Error responses are returned correctly for invalid inputs, mismatched KMS IDs, missing keys, and excessive request rates."
+  ],
+  "code_summary": {
+    "tech_stack": [
+      "python",
+      "fastapi",
+      "uvicorn",
+      "requests",
+      "pydantic"
+    ],
+    "features": [
+      {
+        "name": "Root",
+        "description": "Root endpoint providing service metadata.",
+        "files": [
+          "qumail-kms/main.py"
+        ],
+        "api_doc": {
+          "openapi": "3.0.0",
+          "info": {
+            "title": "QuMail-KMS Root",
+            "version": "1.0.0"
+          },
+          "paths": {
+            "/": {
+              "get": {
+                "summary": "Service root",
+                "responses": {
+                  "200": {
+                    "description": "OK"
+                  }
+                }
+              }
+            },
+            "/health": {
+              "get": {
+                "summary": "Health check",
+                "responses": {
+                  "200": {
+                    "description": "OK"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "Keys API",
+        "description": "ETSI QKD 014 keys endpoints: enc_keys, dec_keys, status.",
+        "files": [
+          "qumail-kms/api/v1/keys.py",
+          "qumail-kms/models/key_store.py",
+          "qumail-kms/services/key_pool_manager.py",
+          "qumail-kms/services/key_generator.py",
+          "qumail-kms/services/audit_logger.py"
+        ],
+        "api_doc": {
+          "openapi": "3.0.0",
+          "info": {
+            "title": "QuMail-KMS Keys API",
+            "version": "1.0.0"
+          },
+          "paths": {
+            "/api/v1/keys/enc_keys": {
+              "post": {
+                "summary": "Request encryption keys",
+                "parameters": [
+                  {
+                    "name": "X-SAE-ID",
+                    "in": "header",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "name": "X-Slave-SAE-ID",
+                    "in": "header",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "requestBody": {
+                  "required": true,
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "number": {
+                            "type": "integer"
+                          },
+                          "size": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "number"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "200": {
+                    "description": "Keys returned"
+                  }
+                }
+              }
+            },
+            "/api/v1/keys/dec_keys": {
+              "post": {
+                "summary": "Request decryption keys",
+                "parameters": [
+                  {
+                    "name": "X-SAE-ID",
+                    "in": "header",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "name": "X-Slave-SAE-ID",
+                    "in": "header",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "requestBody": {
+                  "required": true,
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "key_IDs": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "key_IDs"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "200": {
+                    "description": "Keys returned"
+                  }
+                }
+              }
+            },
+            "/api/v1/keys/{master_sae_id}/status": {
+              "get": {
+                "summary": "Get key status",
+                "parameters": [
+                  {
+                    "name": "master_sae_id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "name": "X-Slave-SAE-ID",
+                    "in": "header",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "responses": {
+                  "200": {
+                    "description": "OK"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "KME API",
+        "description": "Internal KME management: sync, verify, status, pool, stats.",
+        "files": [
+          "qumail-kms/api/v1/kme.py",
+          "qumail-kms/services/key_synchronizer.py",
+          "qumail-kms/models/key_store.py",
+          "qumail-kms/services/key_pool_manager.py",
+          "qumail-kms/services/audit_logger.py"
+        ],
+        "api_doc": {
+          "openapi": "3.0.0",
+          "info": {
+            "title": "QuMail-KMS KME API",
+            "version": "1.0.0"
+          },
+          "paths": {
+            "/api/v1/kme/sync": {
+              "post": {
+                "summary": "Receive keys for synchronization",
+                "parameters": [
+                  {
+                    "name": "X-KMS-ID",
+                    "in": "header",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "responses": {
+                  "200": {
+                    "description": "Synced"
+                  }
+                }
+              }
+            },
+            "/api/v1/kme/verify": {
+              "post": {
+                "summary": "Verify keys exist",
+                "parameters": [
+                  {
+                    "name": "X-KMS-ID",
+                    "in": "header",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "responses": {
+                  "200": {
+                    "description": "OK"
+                  }
+                }
+              }
+            },
+            "/api/v1/kme/status": {
+              "get": {
+                "summary": "KME status",
+                "responses": {
+                  "200": {
+                    "description": "OK"
+                  }
+                }
+              }
+            },
+            "/api/v1/kme/pool/status": {
+              "post": {
+                "summary": "Key pool status",
+                "responses": {
+                  "200": {
+                    "description": "OK"
+                  }
+                }
+              }
+            },
+            "/api/v1/kme/pool/replenish": {
+              "post": {
+                "summary": "Replenish pool",
+                "responses": {
+                  "200": {
+                    "description": "OK"
+                  }
+                }
+              }
+            },
+            "/api/v1/kme/stats": {
+              "get": {
+                "summary": "KMS stats",
+                "responses": {
+                  "200": {
+                    "description": "OK"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

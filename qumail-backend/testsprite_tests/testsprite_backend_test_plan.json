@@ -1,0 +1,37 @@
+[
+  {
+    "id": "TC001",
+    "title": "health check endpoint returns complete service status",
+    "description": "Verify that the /health GET endpoint returns a 200 status with a JSON object containing the health status of the database, km_server_1, km_server_2, security_auditor, version, timestamp, and uptime_seconds."
+  },
+  {
+    "id": "TC002",
+    "title": "root endpoint provides api information and features",
+    "description": "Verify that the / GET endpoint returns a 200 status with API information including service name, version, status, environment, documentation URL, supported security levels, features list, and timestamp."
+  },
+  {
+    "id": "TC003",
+    "title": "get emails endpoint returns emails from specified folder",
+    "description": "Verify that the /emails GET endpoint returns a 200 status with a list of emails from the specified folder (inbox or sent), including email metadata such as id, flow_id, sender, receiver, subject, timestamp, isRead, isStarred, securityLevel, direction, and isSuspicious. Also verify pagination with nextPageToken and totalCount."
+  },
+  {
+    "id": "TC004",
+    "title": "send encrypted email with valid security level",
+    "description": "Verify that the /emails/send POST endpoint successfully sends an email encrypted with the selected security level (1 to 4). The response should include success status, emailId, flowId, encryptionMethod, securityLevel, entropy, keyId, encryptedSize, timestamp, and a success message."
+  },
+  {
+    "id": "TC005",
+    "title": "encryption status endpoint returns real time quantum key metrics",
+    "description": "Verify that the /encryption/status GET endpoint returns a 200 status with detailed encryption status including kmeStatus array, quantumKeysAvailable count, encryptionStats for each encryption type, entropyStatus, averageEntropy, keyUsage array, securityLevels object, timestamp, and overall systemStatus."
+  },
+  {
+    "id": "TC006",
+    "title": "generate quantum keys endpoint creates keys on both kmes",
+    "description": "Verify that the /api/v1/quantum/generate-keys POST endpoint generates the requested number of quantum keys on both KME1 and KME2, returning success status, counts of generated, successful, failed keys, success rates for each KME and total, keyTimestamps array, and generatedAt timestamp."
+  },
+  {
+    "id": "TC007",
+    "title": "quantum status dashboard redirects to static html page",
+    "description": "Verify that the /quantum/status GET endpoint responds with a 307 redirect to the static quantum status dashboard HTML page."
+  }
+]

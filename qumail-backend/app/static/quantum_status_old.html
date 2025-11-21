@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuMail Quantum Encryption Status Dashboard</title>
+    <link rel="stylesheet" href="/static/css/quantum_status.css">
+    <!-- Add Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/static/images/key.svg">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="dark-mode">
+    <div class="container">
+        <header>
+            <div class="logo">
+                <img src="/static/images/shield-lock.svg" alt="QuMail Logo">
+                <h1>QuMail Quantum Status</h1>
+            </div>
+            <div class="theme-toggle">
+                <button id="theme-toggle-btn">
+                    <span class="light-icon">☀️</span>
+                    <span class="dark-icon">🌙</span>
+                </button>
+            </div>
+        </header>
+        
+        <div class="dashboard">
+            <div class="card system-status">
+                <h2>System Status</h2>
+                <div class="status-indicator">
+                    <span class="status-dot operational"></span>
+                    <span id="status-text">Operational</span>
+                </div>
+                <div class="last-updated">
+                    Last updated: <span id="last-updated-time">Just now</span>
+                </div>
+                <div class="entropy-quality">
+                    <h3>Entropy Quality</h3>
+                    <div class="progress-container">
+                        <div id="entropy-bar" class="progress-bar" style="width: 98%"></div>
+                    </div>
+                    <div class="entropy-value"><span id="entropy-value">98.2%</span></div>
+                </div>
+            </div>
+            
+            <div class="card kme-servers">
+                <h2>KME Servers</h2>
+                <div class="server-list" id="server-list">
+                    <!-- Server items will be inserted here by JavaScript -->
+                    <div class="server-item">
+                        <div class="server-header">
+                            <div class="server-name">
+                                <img src="/static/images/server.svg" alt="Server">
+                                <h3>KME1 (Alice)</h3>
+                            </div>
+                            <div class="server-status connected">Connected</div>
+                        </div>
+                        <div class="server-details">
+                            <div class="detail-item">
+                                <span class="label">Keys Available:</span>
+                                <span class="value">1,235</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Latency:</span>
+                                <span class="value">12ms</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Zone:</span>
+                                <span class="value">Primary</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="server-item">
+                        <div class="server-header">
+                            <div class="server-name">
+                                <img src="/static/images/server.svg" alt="Server">
+                                <h3>KME2 (Bob)</h3>
+                            </div>
+                            <div class="server-status connected">Connected</div>
+                        </div>
+                        <div class="server-details">
+                            <div class="detail-item">
+                                <span class="label">Keys Available:</span>
+                                <span class="value">876</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Latency:</span>
+                                <span class="value">18ms</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Zone:</span>
+                                <span class="value">Secondary</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card encryption-stats">
+                <h2>Encryption Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <h3>Total Emails</h3>
+                        <div class="stat-value" id="total-emails">328</div>
+                    </div>
+                    <div class="stat-item">
+                        <h3>Encrypted</h3>
+                        <div class="stat-value" id="encrypted-emails">294</div>
+                    </div>
+                    <div class="stat-item">
+                        <h3>Encryption Rate</h3>
+                        <div class="stat-value" id="encryption-rate">89.6%</div>
+                    </div>
+                </div>
+                <div class="encryption-levels">
+                    <h3>Encryption Distribution</h3>
+                    <div class="level-item">
+                        <div class="level-info">
+                            <span class="level-name">Quantum OTP</span>
+                            <span class="level-value" id="level1-count">76</span>
+                            <span id="level1-percent">25.7%</span>
+                        </div>
+                        <div class="level-bar-container">
+                            <div class="level-bar level1" id="level1-bar" style="width: 25%"></div>
+                        </div>
+                    </div>
+                    <div class="level-item">
+                        <div class="level-info">
+                            <span class="level-name">Quantum AES</span>
+                            <span class="level-value" id="level2-count">104</span>
+                            <span id="level2-percent">35.1%</span>
+                        </div>
+                        <div class="level-bar-container">
+                            <div class="level-bar level2" id="level2-bar" style="width: 35%"></div>
+                        </div>
+                    </div>
+                    <div class="level-item">
+                        <div class="level-info">
+                            <span class="level-name">Post-Quantum</span>
+                            <span class="level-value" id="level3-count">82</span>
+                            <span id="level3-percent">27.7%</span>
+                        </div>
+                        <div class="level-bar-container">
+                            <div class="level-bar level3" id="level3-bar" style="width: 28%"></div>
+                        </div>
+                    </div>
+                    <div class="level-item">
+                        <div class="level-info">
+                            <span class="level-name">Standard RSA</span>
+                            <span class="level-value" id="level4-count">32</span>
+                            <span id="level4-percent">10.8%</span>
+                        </div>
+                        <div class="level-bar-container">
+                            <div class="level-bar level4" id="level4-bar" style="width: 12%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card key-usage">
+                <h2>Key Usage History</h2>
+                <div class="chart-container">
+                    <canvas id="key-usage-chart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card system-controls">
+                <h2>System Controls</h2>
+                <div class="controls-grid">
+                    <button id="test-kme1-btn" class="control-btn">
+                        <img src="/static/images/activity.svg" alt="Test">
+                        Test KME1 Connection
+                    </button>
+                    <button id="test-kme2-btn" class="control-btn">
+                        <img src="/static/images/activity.svg" alt="Test">
+                        Test KME2 Connection
+                    </button>
+                    <button id="generate-keys-btn" class="control-btn primary">
+                        <img src="/static/images/key.svg" alt="Generate">
+                        Generate 10 Quantum Keys
+                    </button>
+                </div>
+                <div id="action-result" class="action-result"></div>
+            </div>
+        </div>
+        
+        <footer>
+            <div class="footer-content">
+                <p>QuMail Quantum-Enhanced Secure Email System</p>
+                <p>Quantum-Protected Communication for an Uncertain Digital Future</p>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom JavaScript -->
+    <script src="/static/js/quantum_status.js"></script>
+</body>
+</html>

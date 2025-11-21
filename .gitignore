@@ -1,0 +1,42 @@
+# Dependency directories (EXCLUDE node_modules ONLY)
+node_modules/
+
+# Python virtual environments (EXCLUDE venv directories)
+venv/
+env/
+ENV/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Frontend build artifacts (EXCLUDE compiled builds)
+qumail-frontend/dist/
+qumail-frontend/release/
+
+# Electron build artifacts
+qumail-electron/dist/
+qumail-electron/release/
+
+# Local databases and logs
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE specific files
+.vscode/
+.idea/
+*.sublime-*
+
+# IMPORTANT: Include all .env files (DO NOT IGNORE)
+# !**/.env

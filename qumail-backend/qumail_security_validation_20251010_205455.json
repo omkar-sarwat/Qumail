@@ -1,0 +1,224 @@
+{
+  "timestamp": "2025-10-10T15:24:54.918835+00:00",
+  "overall_status": "FAIL",
+  "security_levels_tested": [],
+  "one_time_key_tests": {
+    "LOW": {
+      "key_generated": false
+    },
+    "MEDIUM": {
+      "key_generated": false
+    },
+    "HIGH": {
+      "key_generated": false
+    },
+    "ULTRA": {
+      "key_generated": false
+    },
+    "CLASSIFIED": {
+      "key_generated": false
+    }
+  },
+  "encryption_format_tests": {},
+  "qumail_exclusivity_tests": {
+    "looks_like_gibberish": false,
+    "contains_readable_text": false,
+    "qumail_decryption_works": false,
+    "encrypted_length": 1487,
+    "sample_output": "fyj2dwbha1xf4w5cbzw2vc1ui9ij6euavcw6dgb1p3sw6pafkxdevrda0b6s2pnce1fetxarmf1ufml4axepfz11wfwm3bh4iafk"
+  },
+  "performance_tests": {
+    "LOW": {
+      "generation_time_ms": 0.0,
+      "acceptable": true
+    },
+    "MEDIUM": {
+      "generation_time_ms": 0.0,
+      "acceptable": true
+    },
+    "HIGH": {
+      "generation_time_ms": 0.0,
+      "acceptable": true
+    },
+    "ULTRA": {
+      "generation_time_ms": 0.0,
+      "acceptable": true
+    },
+    "CLASSIFIED": {
+      "generation_time_ms": 8.958101272583008,
+      "acceptable": true
+    }
+  },
+  "security_violations": [],
+  "recommendations": [
+    "Fix key generation for failed security levels",
+    "Improve encryption format to better hide content from non-QuMail apps"
+  ],
+  "system_validation": {
+    "timestamp": "2025-10-10T15:24:54.978582+00:00",
+    "validation_id": "30e58af9-8688-458e-b484-3b4bacad8758",
+    "overall_status": "FAIL",
+    "security_levels_tested": [
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+      "ULTRA",
+      "CLASSIFIED"
+    ],
+    "one_time_key_enforcement": {
+      "LOW": {
+        "passed": false,
+        "details": ""
+      },
+      "MEDIUM": {
+        "passed": false,
+        "details": ""
+      },
+      "HIGH": {
+        "passed": false,
+        "details": ""
+      },
+      "ULTRA": {
+        "passed": false,
+        "details": ""
+      },
+      "CLASSIFIED": {
+        "passed": false,
+        "details": ""
+      }
+    },
+    "perfect_forward_secrecy": {
+      "LOW": {
+        "passed": false,
+        "details": ""
+      },
+      "MEDIUM": {
+        "passed": false,
+        "details": ""
+      },
+      "HIGH": {
+        "passed": false,
+        "details": ""
+      },
+      "ULTRA": {
+        "passed": false,
+        "details": ""
+      },
+      "CLASSIFIED": {
+        "passed": false,
+        "details": ""
+      }
+    },
+    "qumail_exclusivity": {
+      "encryption_format_valid": true,
+      "gibberish_generation": false,
+      "qumail_signature_valid": true,
+      "non_qumail_readable": false,
+      "overall_exclusivity": false
+    },
+    "kme_connectivity": {
+      "total_servers": 2,
+      "healthy_servers": 0,
+      "server_status": {
+        "KME-1": {
+          "status": "ERROR",
+          "error": "'MockKMClient' object has no attribute 'get_key_with_key_ids'",
+          "response_time_ms": 0.0,
+          "last_check": "2025-10-10T15:24:54.981638+00:00"
+        },
+        "KME-2": {
+          "status": "ERROR",
+          "error": "'MockKMClient' object has no attribute 'get_key_with_key_ids'",
+          "response_time_ms": 0.0,
+          "last_check": "2025-10-10T15:24:54.981638+00:00"
+        }
+      },
+      "redundancy_available": false,
+      "overall_health": "CRITICAL"
+    },
+    "entropy_validation": {
+      "LOW": {
+        "passed": false,
+        "details": ""
+      },
+      "MEDIUM": {
+        "passed": false,
+        "details": ""
+      },
+      "HIGH": {
+        "passed": false,
+        "details": ""
+      },
+      "ULTRA": {
+        "passed": false,
+        "details": ""
+      },
+      "CLASSIFIED": {
+        "passed": false,
+        "details": ""
+      }
+    },
+    "security_violations": [
+      {
+        "level": "LOW",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      },
+      {
+        "level": "MEDIUM",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      },
+      {
+        "level": "HIGH",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      },
+      {
+        "level": "ULTRA",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      },
+      {
+        "level": "CLASSIFIED",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      }
+    ],
+    "performance_metrics": {
+      "key_generation_time": {
+        "LOW": {
+          "time_ms": 0.0,
+          "acceptable": true
+        },
+        "MEDIUM": {
+          "time_ms": 0.0,
+          "acceptable": true
+        },
+        "HIGH": {
+          "time_ms": 4.790067672729492,
+          "acceptable": true
+        },
+        "ULTRA": {
+          "time_ms": 2.1593570709228516,
+          "acceptable": true
+        },
+        "CLASSIFIED": {
+          "time_ms": 3.718852996826172,
+          "acceptable": true
+        }
+      },
+      "database_performance": {
+        "query_time_ms": 4.943370819091797,
+        "acceptable": true
+      },
+      "memory_usage": {
+        "percent": 77.3,
+        "acceptable": true
+      },
+      "overall_performance": "EXCELLENT"
+    },
+    "security_score": 0.0,
+    "recommendation": "SECURITY IMPROVEMENTS REQUIRED"
+  }
+}

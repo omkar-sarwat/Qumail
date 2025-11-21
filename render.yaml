@@ -1,0 +1,121 @@
+services:
+  - type: web
+    name: qumail-kme1
+    plan: free
+    runtime: docker
+    region: oregon
+    repo: https://github.com/omkarsarswat/FULL
+    branch: main
+    autoDeploy: true
+    rootDir: next-door-key-simulator
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: USE_HTTPS
+        value: false
+      - key: KME_ID
+        value: "1"
+      - key: ATTACHED_SAE_ID
+        value: 25840139-0dd4-49ae-ba1e-b86731601803
+      - key: DEFAULT_KEY_SIZE
+        value: "32"
+      - key: MAX_KEY_COUNT
+        value: "1000"
+      - key: KEY_GEN_BATCH_SIZE
+        value: "100"
+      - key: KEY_GEN_SEC_TO_GEN
+        value: "1.0"
+      - key: REFILL_THRESHOLD
+        value: "500"
+      - key: MAX_KEYS_PER_REQUEST
+        value: "128"
+      - key: MAX_KEY_SIZE
+        value: "1024"
+      - key: MIN_KEY_SIZE
+        value: "32"
+      - key: KEY_ACQUIRE_TIMEOUT
+        value: "10"
+      - key: NETWORK_TIMEOUT
+        value: "60"
+      - key: OTHER_KMES
+        value: https://qumail-kme2-brzq.onrender.com
+    healthCheckPath: /api/v1/kme/status
+
+  - type: web
+    name: qumail-kme2
+    plan: free
+    runtime: docker
+    region: oregon
+    repo: https://github.com/omkarsarswat/FULL
+    branch: main
+    autoDeploy: true
+    rootDir: next-door-key-simulator
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: USE_HTTPS
+        value: false
+      - key: KME_ID
+        value: "2"
+      - key: ATTACHED_SAE_ID
+        value: c565d5aa-8670-4446-8471-b0e53e315d2a
+      - key: DEFAULT_KEY_SIZE
+        value: "32"
+      - key: MAX_KEY_COUNT
+        value: "1000"
+      - key: KEY_GEN_BATCH_SIZE
+        value: "100"
+      - key: KEY_GEN_SEC_TO_GEN
+        value: "1.0"
+      - key: REFILL_THRESHOLD
+        value: "500"
+      - key: MAX_KEYS_PER_REQUEST
+        value: "128"
+      - key: MAX_KEY_SIZE
+        value: "1024"
+      - key: MIN_KEY_SIZE
+        value: "32"
+      - key: KEY_ACQUIRE_TIMEOUT
+        value: "10"
+      - key: NETWORK_TIMEOUT
+        value: "60"
+      - key: OTHER_KMES
+        value: https://qumail-kme1-brzq.onrender.com
+    healthCheckPath: /api/v1/kme/status
+
+  - type: web
+    name: qumail-backend
+    plan: free
+    env: python
+    region: oregon
+    repo: https://github.com/omkarsarswat/FULL
+    branch: main
+    autoDeploy: true
+    rootDir: qumail-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        value: mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/qumail
+      - key: REDIS_URL
+        value: redis://default:password@redis-xxxxx.cloud.redislabs.com:12345
+      - key: KME1_URL
+        value: https://qumail-kme1-brzq.onrender.com
+      - key: KME2_URL
+        value: https://qumail-kme2-brzq.onrender.com
+      - key: GOOGLE_CLIENT_ID
+        value: your-google-client-id.apps.googleusercontent.com
+      - key: GOOGLE_CLIENT_SECRET
+        value: your-google-client-secret
+      - key: JWT_SECRET
+        value: change-me-please
+      - key: GMAIL_SCOPES
+        value: https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email

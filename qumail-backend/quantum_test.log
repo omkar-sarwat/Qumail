@@ -1,0 +1,75 @@
+2025-10-04 12:06:40,738 - __main__ - INFO - Starting quantum integration tests
+2025-10-04 12:06:44,171 - httpx - INFO - HTTP Request: GET http://localhost:8001/health "HTTP/1.1 200 OK"
+2025-10-04 12:06:44,171 - __main__ - INFO - Backend is running
+2025-10-04 12:06:44,171 - __main__ - INFO - 
+=== Testing Quantum Status ===
+2025-10-04 12:06:45,028 - httpx - INFO - HTTP Request: GET http://localhost:8001/api/v1/quantum/status "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:06:45,032 - __main__ - ERROR - Quantum status check failed: 401 {"detail":"Missing session token"}
+2025-10-04 12:06:45,032 - __main__ - WARNING - Quantum status test failed. Starting KME servers...
+2025-10-04 12:06:45,034 - __main__ - INFO - Starting KME server with command: cd D:\New folder (8)\qumail-secure-email\qkd_kme_server-master && target/release/qkd_kme_server config_kme1.json5
+2025-10-04 12:06:47,070 - __main__ - ERROR - Failed to start KME server: 'target' is not recognized as an internal or external command,
+operable program or batch file.
+
+2025-10-04 12:06:47,073 - __main__ - INFO - Starting KME server with command: cd D:\New folder (8)\qumail-secure-email\qkd_kme_server-master && target/release/qkd_kme_server config_kme2.json5
+2025-10-04 12:06:49,100 - __main__ - ERROR - Failed to start KME server: 'target' is not recognized as an internal or external command,
+operable program or batch file.
+
+2025-10-04 12:06:49,102 - __main__ - INFO - Waiting for KME servers to initialize...
+2025-10-04 12:06:54,782 - httpx - INFO - HTTP Request: GET http://localhost:8001/api/v1/quantum/status "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:06:54,784 - __main__ - ERROR - Quantum status check failed: 401 {"detail":"Missing session token"}
+2025-10-04 12:06:54,788 - __main__ - INFO - 
+=== Testing Quantum Key Exchange ===
+2025-10-04 12:06:55,764 - httpx - INFO - HTTP Request: POST http://localhost:8001/api/v1/quantum/key/exchange "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:06:55,770 - __main__ - ERROR - Key exchange failed: 401 {"detail":"Missing session token"}
+2025-10-04 12:06:55,779 - __main__ - INFO - 
+=== Testing Quantum Email Sending ===
+2025-10-04 12:06:56,879 - httpx - INFO - HTTP Request: GET http://localhost:8001/api/v1/quantum/keys/available "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:06:56,881 - __main__ - ERROR - Failed to get available keys: 401
+2025-10-04 12:06:56,888 - __main__ - INFO - 
+=== Test Results ===
+2025-10-04 12:06:56,891 - __main__ - INFO - Quantum Status Test: FAILED
+2025-10-04 12:06:56,895 - __main__ - INFO - Quantum Key Exchange Test: FAILED
+2025-10-04 12:06:56,899 - __main__ - INFO - Quantum Email Test: FAILED
+2025-10-04 12:06:56,900 - __main__ - INFO - 
+Overall Test Result: FAILED
+2025-10-04 12:13:52,691 - __main__ - INFO - Starting quantum integration tests
+2025-10-04 12:13:53,912 - httpx - INFO - HTTP Request: GET http://localhost:8001/health "HTTP/1.1 200 OK"
+2025-10-04 12:13:53,913 - __main__ - INFO - Backend is running
+2025-10-04 12:13:53,913 - __main__ - INFO - 
+=== Testing Quantum Status ===
+2025-10-04 12:13:54,935 - httpx - INFO - HTTP Request: GET http://localhost:8001/api/v1/quantum/status "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:13:54,939 - __main__ - ERROR - Quantum status check failed: 401 {"detail":"Authentication failed"}
+2025-10-04 12:13:54,939 - __main__ - WARNING - Quantum status test failed. Starting KME servers...
+2025-10-04 12:13:54,939 - __main__ - INFO - Starting KME server with command: cd D:\New folder (8)\qumail-secure-email\qkd_kme_server-master; .\target\release\qkd_kme_server.exe config_kme1.json5
+2025-10-04 12:13:56,978 - __main__ - ERROR - Failed to start KME server: The system cannot find the path specified.
+
+2025-10-04 12:13:56,980 - __main__ - INFO - Starting KME server with command: cd D:\New folder (8)\qumail-secure-email\qkd_kme_server-master; .\target\release\qkd_kme_server.exe config_kme2.json5
+2025-10-04 12:13:59,007 - __main__ - ERROR - Failed to start KME server: The system cannot find the path specified.
+
+2025-10-04 12:13:59,010 - __main__ - INFO - Waiting for KME servers to initialize...
+2025-10-04 12:14:05,002 - httpx - INFO - HTTP Request: GET http://localhost:8001/api/v1/quantum/status "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:14:05,007 - __main__ - ERROR - Quantum status check failed: 401 {"detail":"Authentication failed"}
+2025-10-04 12:14:05,008 - __main__ - INFO - 
+=== Testing Quantum Key Exchange ===
+2025-10-04 12:14:06,013 - httpx - INFO - HTTP Request: POST http://localhost:8001/api/v1/quantum/key/exchange "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:14:06,014 - __main__ - ERROR - Key exchange failed: 401 {"detail":"Authentication failed"}
+2025-10-04 12:14:06,015 - __main__ - INFO - 
+=== Testing Quantum Email Sending ===
+2025-10-04 12:14:07,102 - httpx - INFO - HTTP Request: GET http://localhost:8001/api/v1/quantum/keys/available "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:14:07,102 - __main__ - ERROR - Failed to get available keys: 401
+2025-10-04 12:14:07,102 - __main__ - INFO - 
+=== Test Results ===
+2025-10-04 12:14:07,102 - __main__ - INFO - Quantum Status Test: FAILED
+2025-10-04 12:14:07,102 - __main__ - INFO - Quantum Key Exchange Test: FAILED
+2025-10-04 12:14:07,102 - __main__ - INFO - Quantum Email Test: FAILED
+2025-10-04 12:14:07,102 - __main__ - INFO - 
+Overall Test Result: FAILED
+2025-10-04 12:21:46,983 - __main__ - INFO - Starting quantum integration tests
+2025-10-04 12:21:48,000 - httpx - INFO - HTTP Request: GET http://localhost:8001/health "HTTP/1.1 200 OK"
+2025-10-04 12:21:48,000 - __main__ - INFO - Backend is running
+2025-10-04 12:21:48,000 - __main__ - INFO - 
+=== Testing API Key Authentication ===
+2025-10-04 12:21:48,003 - __main__ - INFO - Testing authentication with API key: test-quantum-api-key-for-testing-only
+2025-10-04 12:21:48,727 - httpx - INFO - HTTP Request: GET http://localhost:8001/api/v1/quantum/test/auth "HTTP/1.1 401 Unauthorized"
+2025-10-04 12:21:48,727 - __main__ - ERROR - Authentication failed: 401 {"detail":"Authentication failed"}
+2025-10-04 12:21:48,732 - __main__ - ERROR - Authentication test failed. Cannot proceed with other tests.

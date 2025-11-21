@@ -1,0 +1,79 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #0b0f1e;
+  color: #f1f5f9;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+}
+
+input, textarea, select {
+  width: 100%;
+  padding: 0.65rem;
+  border-radius: 6px;
+  border: 1px solid #243b55;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: #10172f;
+  padding: 1.5rem;
+  border-right: 1px solid #1f2a44;
+}
+
+.content {
+  padding: 1.5rem;
+}
+
+.card {
+  background: #111c41;
+  border: 1px solid #1f2a44;
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.inbox-item {
+  padding: 0.85rem;
+  border-radius: 10px;
+  background: #0d1534;
+  border: 1px solid #1e2a4b;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: #1b2645;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}

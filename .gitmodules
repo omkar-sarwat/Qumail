@@ -1,0 +1,3 @@
+[submodule "cloud-km-server"]
+	path = cloud-km-server
+	url = https://github.com/vmandhani09/cloud-km-server.git

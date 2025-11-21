@@ -1,0 +1,542 @@
+{
+  "tech_stack": [
+    "Python 3.12",
+    "FastAPI",
+    "PostgreSQL",
+    "SQLAlchemy",
+    "Redis",
+    "Alembic",
+    "HTTPX",
+    "Cryptography",
+    "liboqs (Post-Quantum Cryptography)",
+    "OAuth 2.0",
+    "JWT",
+    "ETSI QKD 014"
+  ],
+  "features": [
+    {
+      "name": "Health Check",
+      "description": "Check backend health status including database, KME servers, and security auditor",
+      "files": ["app/main.py"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/health": {
+            "get": {
+              "summary": "Health check endpoint",
+              "description": "Returns health status of all services including database, KM servers, and security auditor",
+              "responses": {
+                "200": {
+                  "description": "Successful response",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "healthy": {"type": "boolean"},
+                          "services": {
+                            "type": "object",
+                            "properties": {
+                              "database": {"type": "string"},
+                              "km_server_1": {"type": "string"},
+                              "km_server_2": {"type": "string"},
+                              "security_auditor": {"type": "string"}
+                            }
+                          },
+                          "version": {"type": "string"},
+                          "timestamp": {"type": "string"},
+                          "uptime_seconds": {"type": "number"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "/api/v1/health": {
+            "get": {
+              "summary": "Legacy health endpoint",
+              "responses": {
+                "200": {
+                  "description": "Simple health status",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "status": {"type": "string"},
+                          "service": {"type": "string"},
+                          "version": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Root API Info",
+      "description": "Get API information and available features",
+      "files": ["app/main.py"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/": {
+            "get": {
+              "summary": "Root endpoint with API information",
+              "responses": {
+                "200": {
+                  "description": "API information",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "service": {"type": "string"},
+                          "version": {"type": "string"},
+                          "status": {"type": "string"},
+                          "environment": {"type": "string"},
+                          "documentation": {"type": "string"},
+                          "security_levels": {"type": "array", "items": {"type": "string"}},
+                          "features": {"type": "array", "items": {"type": "string"}},
+                          "timestamp": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Email Management",
+      "description": "Get emails from inbox or sent folder with real database queries",
+      "files": ["app/main.py", "app/models/email.py", "app/models/user.py"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/emails": {
+            "get": {
+              "summary": "Get emails from specified folder",
+              "parameters": [
+                {
+                  "name": "folder",
+                  "in": "query",
+                  "schema": {"type": "string", "enum": ["inbox", "sent"], "default": "inbox"}
+                },
+                {
+                  "name": "maxResults",
+                  "in": "query",
+                  "schema": {"type": "integer", "default": 50}
+                }
+              ],
+              "responses": {
+                "200": {
+                  "description": "List of emails",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "emails": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {"type": "integer"},
+                                "flow_id": {"type": "string"},
+                                "sender": {"type": "string"},
+                                "receiver": {"type": "string"},
+                                "subject": {"type": "string"},
+                                "timestamp": {"type": "string"},
+                                "isRead": {"type": "boolean"},
+                                "isStarred": {"type": "boolean"},
+                                "securityLevel": {"type": "integer"},
+                                "direction": {"type": "string"},
+                                "isSuspicious": {"type": "boolean"}
+                              }
+                            }
+                          },
+                          "totalCount": {"type": "integer"},
+                          "nextPageToken": {"type": "string"},
+                          "userEmail": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                },
+                "401": {
+                  "description": "No authenticated user found"
+                },
+                "500": {
+                  "description": "Database error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Send Quantum Email",
+      "description": "Send email with quantum encryption (Level 1-4)",
+      "files": ["app/main.py", "app/services/real_quantum_email.py", "app/services/encryption/level1_otp.py"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/emails/send": {
+            "post": {
+              "summary": "Send email with quantum encryption",
+              "requestBody": {
+                "required": true,
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "subject": {"type": "string"},
+                        "body": {"type": "string"},
+                        "recipient": {"type": "string", "format": "email"},
+                        "securityLevel": {"type": "integer", "minimum": 1, "maximum": 4, "default": 2}
+                      },
+                      "required": ["subject", "body", "recipient"]
+                    }
+                  }
+                }
+              },
+              "responses": {
+                "200": {
+                  "description": "Email sent successfully",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "success": {"type": "boolean"},
+                          "emailId": {"type": "integer"},
+                          "flowId": {"type": "string"},
+                          "encryptionMethod": {"type": "string"},
+                          "securityLevel": {"type": "integer"},
+                          "entropy": {"type": "number"},
+                          "keyId": {"type": "string"},
+                          "encryptedSize": {"type": "integer"},
+                          "timestamp": {"type": "string"},
+                          "message": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                },
+                "400": {
+                  "description": "Recipient and subject are required"
+                },
+                "401": {
+                  "description": "No authenticated user found"
+                },
+                "500": {
+                  "description": "Failed to send quantum email"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Encryption Status",
+      "description": "Get real encryption status from quantum key management entities",
+      "files": ["app/main.py", "app/services/kme_service.py", "app/services/real_qkd_client.py"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/encryption/status": {
+            "get": {
+              "summary": "Get encryption status",
+              "responses": {
+                "200": {
+                  "description": "Encryption status",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "kmeStatus": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {"type": "string"},
+                                "name": {"type": "string"},
+                                "status": {"type": "string"},
+                                "latency": {"type": "number"},
+                                "keysAvailable": {"type": "integer"},
+                                "maxKeySize": {"type": "integer"},
+                                "averageEntropy": {"type": "number"},
+                                "keyGenRate": {"type": "number"},
+                                "zone": {"type": "string"}
+                              }
+                            }
+                          },
+                          "quantumKeysAvailable": {"type": "integer"},
+                          "encryptionStats": {
+                            "type": "object",
+                            "properties": {
+                              "quantum_otp": {"type": "integer"},
+                              "quantum_aes": {"type": "integer"},
+                              "post_quantum": {"type": "integer"},
+                              "standard_rsa": {"type": "integer"}
+                            }
+                          },
+                          "entropyStatus": {"type": "string"},
+                          "averageEntropy": {"type": "number"},
+                          "keyUsage": {"type": "array"},
+                          "securityLevels": {"type": "object"},
+                          "timestamp": {"type": "string"},
+                          "systemStatus": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                },
+                "500": {
+                  "description": "Error retrieving encryption status"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Generate Quantum Keys",
+      "description": "Generate quantum keys using QKD KME servers",
+      "files": ["app/main.py", "app/services/kme_service.py"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/api/v1/quantum/generate-keys": {
+            "post": {
+              "summary": "Generate quantum keys",
+              "parameters": [
+                {
+                  "name": "count",
+                  "in": "query",
+                  "schema": {"type": "integer", "default": 10}
+                }
+              ],
+              "responses": {
+                "200": {
+                  "description": "Quantum keys generated",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "success": {"type": "boolean"},
+                          "requestedKeys": {"type": "integer"},
+                          "kme1": {
+                            "type": "object",
+                            "properties": {
+                              "generated": {"type": "integer"},
+                              "successful": {"type": "integer"},
+                              "failedKeys": {"type": "integer"},
+                              "successRate": {"type": "number"}
+                            }
+                          },
+                          "kme2": {
+                            "type": "object",
+                            "properties": {
+                              "generated": {"type": "integer"},
+                              "successful": {"type": "integer"},
+                              "failedKeys": {"type": "integer"},
+                              "successRate": {"type": "number"}
+                            }
+                          },
+                          "total": {
+                            "type": "object",
+                            "properties": {
+                              "generated": {"type": "integer"},
+                              "successful": {"type": "integer"},
+                              "failedKeys": {"type": "integer"},
+                              "successRate": {"type": "number"}
+                            }
+                          },
+                          "keyTimestamps": {"type": "array", "items": {"type": "string"}},
+                          "generatedAt": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                },
+                "500": {
+                  "description": "Error generating quantum keys"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Quantum Status Dashboard",
+      "description": "Redirect to quantum status dashboard HTML page",
+      "files": ["app/main.py", "app/static/quantum_status.html"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/quantum/status": {
+            "get": {
+              "summary": "Quantum status dashboard",
+              "responses": {
+                "307": {
+                  "description": "Redirect to static quantum status dashboard"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ETSI QKD 014 Key Cache",
+      "description": "In-memory quantum key cache with synchronized key retrieval from KME1 and KME2",
+      "files": [
+        "app/services/quantum_key_cache.py",
+        "app/services/km_client_init.py",
+        "app/services/optimized_km_client.py"
+      ],
+      "api_doc": {
+        "description": "Internal service for managing quantum keys with one-time use enforcement. Implements ETSI GS QKD 014 REST API client.",
+        "methods": {
+          "get_key_for_encryption": {
+            "description": "Retrieve quantum key from KME1 for encryption (enc_keys endpoint)",
+            "returns": "Quantum key with key_ID"
+          },
+          "get_key_for_decryption": {
+            "description": "Retrieve SAME quantum key from KME2 for decryption (dec_keys endpoint) using key_ID. Enforces one-time use.",
+            "params": {
+              "key_id": "Unique key identifier from encryption"
+            },
+            "returns": "Same quantum key from KME2",
+            "throws": "SecurityError if key already used (one-time pad violation)"
+          }
+        }
+      }
+    },
+    {
+      "name": "Level 1: Quantum One-Time Pad Encryption",
+      "description": "Information-theoretically secure encryption using quantum-distributed keys (Perfect Secrecy)",
+      "files": ["app/services/encryption/level1_otp.py", "app/services/quantum_key_cache.py"],
+      "api_doc": {
+        "description": "XOR-based encryption with quantum keys from ETSI QKD 014 KMEs. Provides perfect secrecy according to Shannon's theorem.",
+        "security_properties": [
+          "Perfect secrecy (information-theoretically secure)",
+          "Immune to quantum computing attacks",
+          "One-time use enforcement",
+          "Key length = message length"
+        ],
+        "methods": {
+          "encrypt_otp": {
+            "description": "Encrypt plaintext with quantum key via XOR operation",
+            "params": {
+              "plaintext": "bytes",
+              "quantum_key_cache": "QuantumKeyCache instance"
+            },
+            "returns": {
+              "ciphertext": "base64 encoded",
+              "key_id": "quantum key identifier",
+              "algorithm": "OTP-QKD-ETSI-014",
+              "security_level": 1
+            }
+          },
+          "decrypt_otp": {
+            "description": "Decrypt ciphertext with same quantum key from KME2",
+            "params": {
+              "ciphertext": "bytes",
+              "key_id": "string",
+              "quantum_key_cache": "QuantumKeyCache instance"
+            },
+            "returns": "decrypted plaintext bytes"
+          }
+        }
+      }
+    },
+    {
+      "name": "Level 2: Quantum-Enhanced AES-256-GCM",
+      "description": "Hybrid encryption using quantum keys with AES-256-GCM authenticated encryption",
+      "files": ["app/services/encryption/level2_quantum_aes.py"],
+      "api_doc": {
+        "description": "AES-256-GCM with 256-bit quantum key from ETSI QKD 014 KMEs",
+        "security_properties": [
+          "Quantum-resistant key distribution",
+          "Authenticated encryption (AEAD)",
+          "NIST approved AES-256 algorithm",
+          "Fast encryption speed"
+        ]
+      }
+    },
+    {
+      "name": "Level 3: Post-Quantum Cryptography",
+      "description": "NIST-approved post-quantum algorithms (Kyber-1024 + Dilithium-5)",
+      "files": ["app/services/encryption/level3_pqc.py"],
+      "api_doc": {
+        "description": "Post-quantum key encapsulation and digital signatures using liboqs library",
+        "algorithms": {
+          "KEM": "Kyber-1024 (NIST ML-KEM)",
+          "Signature": "Dilithium-5 (NIST ML-DSA)",
+          "Symmetric": "AES-256-GCM"
+        }
+      }
+    },
+    {
+      "name": "Level 4: Standard RSA-4096",
+      "description": "Traditional RSA-4096 with AES-256-GCM for maximum compatibility",
+      "files": ["app/services/encryption/level4_rsa.py"],
+      "api_doc": {
+        "description": "Standard public-key cryptography with RSA-4096",
+        "warning": "Vulnerable to quantum computers. Use Level 1-3 for quantum-safe encryption."
+      }
+    },
+    {
+      "name": "Authentication & Authorization",
+      "description": "OAuth 2.0 with Google, JWT tokens, session management",
+      "files": [
+        "app/api/auth.py",
+        "app/models/user.py",
+        "app/security/oauth.py"
+      ],
+      "api_doc": {
+        "description": "Google OAuth 2.0 authentication flow with Gmail API integration"
+      }
+    },
+    {
+      "name": "Security Audit Logging",
+      "description": "Comprehensive security incident logging and monitoring",
+      "files": ["app/services/security_auditor.py", "app/models/security_log.py"],
+      "api_doc": {
+        "description": "Logs all security events including key usage, authentication, encryption operations, and system events"
+      }
+    },
+    {
+      "name": "Database Models",
+      "description": "SQLAlchemy ORM models for users, emails, quantum keys, and security logs",
+      "files": [
+        "app/models/user.py",
+        "app/models/email.py",
+        "app/models/quantum_key.py",
+        "app/models/security_log.py"
+      ],
+      "api_doc": {
+        "description": "PostgreSQL database with encrypted storage for sensitive data"
+      }
+    }
+  ]
+}

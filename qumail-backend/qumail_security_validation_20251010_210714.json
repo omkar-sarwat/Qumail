@@ -1,0 +1,238 @@
+{
+  "timestamp": "2025-10-10T15:37:13.574521+00:00",
+  "overall_status": "FAIL",
+  "security_levels_tested": [],
+  "one_time_key_tests": {
+    "LOW": {
+      "key_generated": false
+    },
+    "MEDIUM": {
+      "key_generated": false
+    },
+    "HIGH": {
+      "key_generated": false
+    },
+    "ULTRA": {
+      "key_generated": false
+    },
+    "CLASSIFIED": {
+      "key_generated": false
+    }
+  },
+  "encryption_format_tests": {},
+  "qumail_exclusivity_tests": {
+    "looks_like_gibberish": false,
+    "contains_readable_text": false,
+    "qumail_decryption_works": false,
+    "encrypted_length": 1487,
+    "sample_output": "fyj2dwbha1xf4w5cbzw2vc1ui9ij6euavcw6dgb1p3sw6pafkxdevrda0b6s2pnce1fetxarmf1ufml4axepfz11wfwm3bh4iafk"
+  },
+  "performance_tests": {
+    "LOW": {
+      "generation_time_ms": 1.0008811950683594,
+      "acceptable": true
+    },
+    "MEDIUM": {
+      "generation_time_ms": 0.5011558532714844,
+      "acceptable": true
+    },
+    "HIGH": {
+      "generation_time_ms": 0.0,
+      "acceptable": true
+    },
+    "ULTRA": {
+      "generation_time_ms": 0.0,
+      "acceptable": true
+    },
+    "CLASSIFIED": {
+      "generation_time_ms": 0.0,
+      "acceptable": true
+    }
+  },
+  "security_violations": [],
+  "recommendations": [
+    "Fix key generation for failed security levels",
+    "Improve encryption format to better hide content from non-QuMail apps"
+  ],
+  "system_validation": {
+    "timestamp": "2025-10-10T15:37:13.804817+00:00",
+    "validation_id": "17786119-29d1-4188-bed7-0fcd2f007687",
+    "overall_status": "FAIL",
+    "security_levels_tested": [
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+      "ULTRA",
+      "CLASSIFIED"
+    ],
+    "one_time_key_enforcement": {
+      "LOW": {
+        "passed": false,
+        "details": ""
+      },
+      "MEDIUM": {
+        "passed": false,
+        "details": ""
+      },
+      "HIGH": {
+        "passed": false,
+        "details": ""
+      },
+      "ULTRA": {
+        "passed": false,
+        "details": ""
+      },
+      "CLASSIFIED": {
+        "passed": false,
+        "details": ""
+      }
+    },
+    "perfect_forward_secrecy": {
+      "LOW": {
+        "passed": false,
+        "details": ""
+      },
+      "MEDIUM": {
+        "passed": false,
+        "details": ""
+      },
+      "HIGH": {
+        "passed": false,
+        "details": ""
+      },
+      "ULTRA": {
+        "passed": false,
+        "details": ""
+      },
+      "CLASSIFIED": {
+        "passed": false,
+        "details": ""
+      }
+    },
+    "qumail_exclusivity": {
+      "encryption_format_valid": true,
+      "gibberish_generation": false,
+      "qumail_signature_valid": true,
+      "non_qumail_readable": false,
+      "overall_exclusivity": false
+    },
+    "kme_connectivity": {
+      "total_servers": 2,
+      "healthy_servers": 2,
+      "server_status": {
+        "KME-1": {
+          "status": "HEALTHY",
+          "response_time_ms": 34.81650352478027,
+          "performance_score": 1.0,
+          "last_check": "2025-10-10T15:37:13.978553+00:00",
+          "capabilities": {
+            "supports_key_generation": true,
+            "supports_status_check": true,
+            "supports_key_with_ids": true,
+            "max_key_size": 0,
+            "estimated_throughput": 10
+          }
+        },
+        "KME-2": {
+          "status": "HEALTHY",
+          "response_time_ms": 35.55607795715332,
+          "performance_score": 1.0,
+          "last_check": "2025-10-10T15:37:14.133441+00:00",
+          "capabilities": {
+            "supports_key_generation": true,
+            "supports_status_check": true,
+            "supports_key_with_ids": true,
+            "max_key_size": 0,
+            "estimated_throughput": 10
+          }
+        }
+      },
+      "redundancy_available": true,
+      "overall_health": "EXCELLENT"
+    },
+    "entropy_validation": {
+      "LOW": {
+        "passed": false,
+        "details": ""
+      },
+      "MEDIUM": {
+        "passed": false,
+        "details": ""
+      },
+      "HIGH": {
+        "passed": false,
+        "details": ""
+      },
+      "ULTRA": {
+        "passed": false,
+        "details": ""
+      },
+      "CLASSIFIED": {
+        "passed": false,
+        "details": ""
+      }
+    },
+    "security_violations": [
+      {
+        "level": "LOW",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      },
+      {
+        "level": "MEDIUM",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      },
+      {
+        "level": "HIGH",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      },
+      {
+        "level": "ULTRA",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      },
+      {
+        "level": "CLASSIFIED",
+        "violation": "ONE_TIME_KEY_REUSE",
+        "severity": "CRITICAL"
+      }
+    ],
+    "performance_metrics": {
+      "key_generation_time": {
+        "LOW": {
+          "time_ms": 1.1513233184814453,
+          "acceptable": true
+        },
+        "MEDIUM": {
+          "time_ms": 0.0,
+          "acceptable": true
+        },
+        "HIGH": {
+          "time_ms": 2.2313594818115234,
+          "acceptable": true
+        },
+        "ULTRA": {
+          "time_ms": 0.6473064422607422,
+          "acceptable": true
+        },
+        "CLASSIFIED": {
+          "time_ms": 1.409292221069336,
+          "acceptable": true
+        }
+      },
+      "database_performance": {
+        "query_time_ms": 0.0,
+        "acceptable": true
+      },
+      "memory_usage": {
+        "percent": 84.4,
+        "acceptable": false
+      },
+      "overall_performance": "ACCEPTABLE"
+    },
+    "security_score": 0.15,
+    "recommendation": "SECURITY IMPROVEMENTS REQUIRED"
+  }
+}

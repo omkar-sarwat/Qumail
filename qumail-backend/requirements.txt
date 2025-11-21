@@ -1,0 +1,66 @@
+# Core FastAPI framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Cryptography and security
+cryptography==41.0.8
+liboqs-python==0.9.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pyopenssl==23.3.0
+
+# HTTP and networking
+python-multipart==0.0.6
+aiohttp==3.9.1
+httpx==0.25.2
+requests==2.31.0
+
+# Google API integration
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.110.0
+google-auth==2.24.0
+
+# Email handling
+aiosmtplib==3.0.1
+aioimaplib==1.0.1
+email-validator==2.1.0
+
+# Configuration and environment
+python-dotenv==1.0.0
+environs==10.0.0
+
+# Database drivers
+motor==3.3.2
+pymongo==4.6.1
+mongita==1.2.0
+
+# Additional security dependencies
+pynacl==1.5.0
+ecdsa==0.18.0
+hkdf==0.0.3
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+numpy==1.25.2
+scipy==1.11.4
+
+# Development and testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+isort==5.12.0
+bandit==1.7.5
+safety==2.3.5
+
+# Monitoring and logging
+structlog==23.2.0
+sentry-sdk==1.38.0
+
+# Build tools
+setuptools>=69.0.0
+wheel>=0.42.0
+pip>=23.3.0

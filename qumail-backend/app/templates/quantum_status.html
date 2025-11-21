@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Encryption Status Dashboard | QuMail</title>
+    <link rel="stylesheet" href="/static/css/quantum_status.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="dashboard-header">
+            <div class="logo-container">
+                <img src="/static/images/logo.svg" alt="QuMail Logo" class="logo">
+                <h1>Quantum Encryption Status</h1>
+            </div>
+            <div class="header-actions">
+                <button id="theme-toggle-btn" class="icon-btn">
+                    <span class="material-icons">dark_mode</span>
+                </button>
+                <div class="last-updated">
+                    <span>Last updated:</span>
+                    <span id="last-updated-time">Just now</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="dashboard-grid">
+            <!-- System Status Card -->
+            <div class="card system-status-card">
+                <h2 class="card-title">System Status</h2>
+                <div class="system-status">
+                    <div class="status-dot operational"></div>
+                    <div id="status-text">Operational</div>
+                </div>
+                <div id="action-result" class="action-result">
+                    System ready for encryption operations
+                </div>
+                <div class="actions-container">
+                    <button id="test-kme1-btn" class="btn primary-btn">Test KME1</button>
+                    <button id="test-kme2-btn" class="btn primary-btn">Test KME2</button>
+                    <button id="generate-keys-btn" class="btn accent-btn">Generate Keys</button>
+                </div>
+            </div>
+
+            <!-- Entropy Quality Card -->
+            <div class="card entropy-card">
+                <h2 class="card-title">Quantum Entropy Quality</h2>
+                <div class="entropy-meter">
+                    <div class="entropy-label">
+                        <span>Current Entropy:</span>
+                        <span id="entropy-value">98.7%</span>
+                    </div>
+                    <div class="entropy-bar-container">
+                        <div id="entropy-bar" class="entropy-bar" style="width: 98.7%"></div>
+                    </div>
+                    <div class="entropy-description">
+                        High entropy indicates strong randomness and security in quantum key generation
+                    </div>
+                </div>
+            </div>
+
+            <!-- Encryption Stats Card -->
+            <div class="card stats-card">
+                <h2 class="card-title">Encryption Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-value" id="total-emails">0</span>
+                        <span class="stat-label">Total Emails</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="encrypted-emails">0</span>
+                        <span class="stat-label">Encrypted</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="encryption-rate">0%</span>
+                        <span class="stat-label">Encryption Rate</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Encryption Levels Card -->
+            <div class="card levels-card">
+                <h2 class="card-title">Encryption Levels</h2>
+                <div class="levels-container">
+                    <div class="level-item">
+                        <div class="level-header">
+                            <div class="level-name">
+                                <div class="level-dot level-1"></div>
+                                <span>Level 1: Quantum OTP</span>
+                            </div>
+                            <span class="level-count">
+                                <span id="level1-count">0</span>
+                                <span id="level1-percent">0.0%</span>
+                            </span>
+                        </div>
+                        <div class="level-bar-container">
+                            <div id="level1-bar" class="level-bar level-1-bar" style="width: 40%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="level-item">
+                        <div class="level-header">
+                            <div class="level-name">
+                                <div class="level-dot level-2"></div>
+                                <span>Level 2: Quantum-AES</span>
+                            </div>
+                            <span class="level-count">
+                                <span id="level2-count">0</span>
+                                <span id="level2-percent">0.0%</span>
+                            </span>
+                        </div>
+                        <div class="level-bar-container">
+                            <div id="level2-bar" class="level-bar level-2-bar" style="width: 30%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="level-item">
+                        <div class="level-header">
+                            <div class="level-name">
+                                <div class="level-dot level-3"></div>
+                                <span>Level 3: Post-Quantum</span>
+                            </div>
+                            <span class="level-count">
+                                <span id="level3-count">0</span>
+                                <span id="level3-percent">0.0%</span>
+                            </span>
+                        </div>
+                        <div class="level-bar-container">
+                            <div id="level3-bar" class="level-bar level-3-bar" style="width: 20%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="level-item">
+                        <div class="level-header">
+                            <div class="level-name">
+                                <div class="level-dot level-4"></div>
+                                <span>Level 4: Standard RSA</span>
+                            </div>
+                            <span class="level-count">
+                                <span id="level4-count">0</span>
+                                <span id="level4-percent">0.0%</span>
+                            </span>
+                        </div>
+                        <div class="level-bar-container">
+                            <div id="level4-bar" class="level-bar level-4-bar" style="width: 10%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- KME Servers Card -->
+            <div class="card servers-card">
+                <h2 class="card-title">QKD Key Management Entities</h2>
+                <div class="server-list" id="server-list">
+                    <!-- Server items will be populated by JavaScript -->
+                </div>
+            </div>
+            
+            <!-- Key Usage Chart -->
+            <div class="card chart-card">
+                <h2 class="card-title">Quantum Key Usage (Last 7 Days)</h2>
+                <div class="chart-container">
+                    <canvas id="key-usage-chart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="dashboard-footer">
+            <p>&copy; 2023 QuMail Secure Email System | Quantum Encryption Status</p>
+        </footer>
+    </div>
+    
+    <script src="/static/js/quantum_status.js"></script>
+</body>
+</html>

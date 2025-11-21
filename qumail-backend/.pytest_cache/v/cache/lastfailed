@@ -1,0 +1,8 @@
+{
+  "tests/test_optimized_km_all_levels.py::test_level1_encryption": true,
+  "tests/test_optimized_km_all_levels.py::test_level2_encryption": true,
+  "tests/test_optimized_km_all_levels.py::test_level3_encryption": true,
+  "tests/test_optimized_km_all_levels.py::test_level4_encryption": true,
+  "tests/test_optimized_km_all_levels.py::test_optimized_client_availability": true,
+  "tests/test_optimized_km_all_levels.py::test_retry_mechanism": true
+}

@@ -1,0 +1,83 @@
+2025-10-05 11:53:05,917 - __main__ - INFO - ================================================================================
+2025-10-05 11:53:05,917 - __main__ - INFO - Testing KME connectivity...
+2025-10-05 11:53:06,509 - httpx - INFO - HTTP Request: GET https://localhost:13000/api/v1/status "HTTP/1.1 404 Not Found"
+2025-10-05 11:53:06,511 - httpx - INFO - HTTP Request: GET https://localhost:13000/ "HTTP/1.1 404 Not Found"
+2025-10-05 11:53:06,512 - etsi_qkd_client - ERROR - Failed to get KME status: Client error '404 Not Found' for url 'https://localhost:13000/'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2025-10-05 11:53:07,021 - __main__ - INFO - Testing SAE authentication...
+2025-10-05 11:53:07,027 - httpx - INFO - HTTP Request: GET https://localhost:13000/api/v1/sae/info/me "HTTP/1.1 200 OK"
+2025-10-05 11:53:07,027 - __main__ - INFO - KME 1 SAE info: {'SAE_ID': 1, 'KME_ID': 1}
+2025-10-05 11:53:07,328 - httpx - INFO - HTTP Request: GET https://localhost:14000/api/v1/sae/info/me "HTTP/1.1 200 OK"
+2025-10-05 11:53:07,329 - __main__ - INFO - KME 2 SAE info: {'SAE_ID': 3, 'KME_ID': 2}
+2025-10-05 11:53:07,839 - __main__ - INFO - Testing key status endpoints...
+2025-10-05 11:53:07,853 - httpx - INFO - HTTP Request: GET https://localhost:13000/api/v1/keys/2/status "HTTP/1.1 200 OK"
+2025-10-05 11:53:07,854 - etsi_qkd_client - INFO - Key status for SAE 2: 10 keys available
+2025-10-05 11:53:07,854 - __main__ - INFO - KME 1 -> SAE 2 (local): 10 keys
+2025-10-05 11:53:07,866 - httpx - INFO - HTTP Request: GET https://localhost:13000/api/v1/keys/3/status "HTTP/1.1 200 OK"
+2025-10-05 11:53:07,867 - etsi_qkd_client - INFO - Key status for SAE 3: 10 keys available
+2025-10-05 11:53:07,867 - __main__ - INFO - KME 1 -> SAE 3 (remote): 10 keys
+2025-10-05 11:53:07,879 - httpx - INFO - HTTP Request: GET https://localhost:14000/api/v1/keys/1/status "HTTP/1.1 200 OK"
+2025-10-05 11:53:07,881 - etsi_qkd_client - INFO - Key status for SAE 1: 10 keys available
+2025-10-05 11:53:07,881 - __main__ - INFO - KME 2 -> SAE 1 (remote): 10 keys
+2025-10-05 11:53:08,406 - __main__ - INFO - Testing entropy monitoring...
+2025-10-05 11:53:08,406 - httpx - INFO - HTTP Request: GET https://localhost:13000/api/v1/keys/entropy/total "HTTP/1.1 200 OK"
+2025-10-05 11:53:08,408 - httpx - INFO - HTTP Request: GET https://localhost:14000/api/v1/keys/entropy/total "HTTP/1.1 200 OK"
+2025-10-05 11:53:08,410 - __main__ - INFO - KME 1 entropy: 7.920
+2025-10-05 11:53:08,410 - __main__ - INFO - KME 2 entropy: 7.920
+2025-10-05 11:53:08,923 - __main__ - INFO - Testing same-KME key exchange...
+2025-10-05 11:53:08,939 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/2/enc_keys "HTTP/1.1 200 OK"
+2025-10-05 11:53:08,940 - etsi_qkd_client - INFO - Successfully retrieved 1 encryption keys for SAE 2
+2025-10-05 11:53:08,940 - __main__ - INFO - Same-KME key exchange successful: b9ad1175-ef80-b752-9342-e6f7e622b127
+2025-10-05 11:53:09,451 - __main__ - INFO - Testing inter-KME key exchange...
+2025-10-05 11:53:09,451 - __main__ - INFO - Requesting keys from KME 1 to SAE 3 (KME 2)...
+2025-10-05 11:53:09,808 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/3/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:09,809 - etsi_qkd_client - WARNING - Gateway timeout (attempt 1/3), retrying in 2.0s
+2025-10-05 11:53:12,162 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/3/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:12,163 - etsi_qkd_client - WARNING - Gateway timeout (attempt 2/3), retrying in 4.0s
+2025-10-05 11:53:16,508 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/3/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:17,013 - __main__ - INFO - Testing reverse inter-KME key exchange...
+2025-10-05 11:53:17,013 - __main__ - INFO - Requesting keys from KME 2 to SAE 1 (KME 1)...
+2025-10-05 11:53:17,624 - httpx - INFO - HTTP Request: POST https://localhost:14000/api/v1/keys/1/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:17,625 - etsi_qkd_client - WARNING - Gateway timeout (attempt 1/3), retrying in 2.0s
+2025-10-05 11:53:19,975 - httpx - INFO - HTTP Request: POST https://localhost:14000/api/v1/keys/1/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:19,976 - etsi_qkd_client - WARNING - Gateway timeout (attempt 2/3), retrying in 4.0s
+2025-10-05 11:53:24,340 - httpx - INFO - HTTP Request: POST https://localhost:14000/api/v1/keys/1/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:24,858 - __main__ - INFO - Testing multiple key request...
+2025-10-05 11:53:25,139 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/2/enc_keys "HTTP/1.1 200 OK"
+2025-10-05 11:53:25,139 - etsi_qkd_client - INFO - Successfully retrieved 3 encryption keys for SAE 2
+2025-10-05 11:53:25,139 - __main__ - INFO - Key 1: b361f384-6d2d-ae51-9fc9-7b84723ff024
+2025-10-05 11:53:25,139 - __main__ - INFO - Key 2: 2d52f6bb-040f-a15b-a81a-2e6a0dc60d93
+2025-10-05 11:53:25,139 - __main__ - INFO - Key 3: 2f46424a-c333-f050-8d3c-1bcf9468565b
+2025-10-05 11:53:25,139 - __main__ - INFO - Multiple key request successful: 3 keys
+2025-10-05 11:53:25,651 - __main__ - INFO - Testing full QKD protocol...
+2025-10-05 11:53:25,651 - etsi_qkd_client - INFO - Starting ETSI QKD-014 key exchange: SAE 1 -> SAE 3
+2025-10-05 11:53:25,662 - httpx - INFO - HTTP Request: GET https://localhost:13000/api/v1/keys/3/status "HTTP/1.1 200 OK"
+2025-10-05 11:53:25,662 - etsi_qkd_client - INFO - Key status for SAE 3: 10 keys available
+2025-10-05 11:53:25,664 - httpx - INFO - HTTP Request: GET https://localhost:13000/api/v1/keys/entropy/total "HTTP/1.1 200 OK"
+2025-10-05 11:53:25,664 - etsi_qkd_client - INFO - Requesting 1 encryption keys...
+2025-10-05 11:53:26,028 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/3/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:26,029 - etsi_qkd_client - WARNING - Gateway timeout (attempt 1/3), retrying in 2.0s
+2025-10-05 11:53:28,391 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/3/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:28,393 - etsi_qkd_client - WARNING - Gateway timeout (attempt 2/3), retrying in 4.0s
+2025-10-05 11:53:32,747 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/3/enc_keys "HTTP/1.1 504 Gateway Timeout"
+2025-10-05 11:53:33,266 - __main__ - INFO - Testing error handling...
+2025-10-05 11:53:33,269 - httpx - INFO - HTTP Request: GET https://localhost:13000/api/v1/keys/999/status "HTTP/1.1 500 Internal Server Error"
+2025-10-05 11:53:33,269 - __main__ - INFO - Correctly handled invalid SAE ID
+2025-10-05 11:53:33,271 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/2/enc_keys "HTTP/1.1 400 Bad Request"
+2025-10-05 11:53:33,272 - __main__ - INFO - Correctly handled excessive key request
+2025-10-05 11:53:33,783 - __main__ - INFO - Running performance benchmark...
+2025-10-05 11:53:33,799 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/2/enc_keys "HTTP/1.1 200 OK"
+2025-10-05 11:53:33,799 - etsi_qkd_client - INFO - Successfully retrieved 1 encryption keys for SAE 2
+2025-10-05 11:53:33,800 - __main__ - INFO - Single key exchange time: 0.016s
+2025-10-05 11:53:33,812 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/2/enc_keys "HTTP/1.1 200 OK"
+2025-10-05 11:53:33,814 - etsi_qkd_client - INFO - Successfully retrieved 1 encryption keys for SAE 2
+2025-10-05 11:53:33,825 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/2/enc_keys "HTTP/1.1 200 OK"
+2025-10-05 11:53:33,826 - etsi_qkd_client - INFO - Successfully retrieved 1 encryption keys for SAE 2
+2025-10-05 11:53:33,841 - httpx - INFO - HTTP Request: POST https://localhost:13000/api/v1/keys/2/enc_keys "HTTP/1.1 200 OK"
+2025-10-05 11:53:33,842 - etsi_qkd_client - INFO - Successfully retrieved 1 encryption keys for SAE 2
+2025-10-05 11:53:33,842 - __main__ - INFO - 3 sequential key exchanges time: 0.042s
+2025-10-05 11:53:34,348 - __main__ - INFO - ================================================================================
+2025-10-05 11:53:34,362 - __main__ - INFO -    Error: KME 1 not healthy: {'healthy': False, 'error': "Client error '404 Not Found' for url 'https://localhost:13000/'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404", 'available_keys': 0}
+2025-10-05 11:53:34,373 - __main__ - INFO -    Error: Inter-KME communication failed: Inter-KME communication failed: Gateway timeout
+2025-10-05 11:53:34,374 - __main__ - INFO -    Error: Reverse inter-KME communication failed: Inter-KME communication failed: Gateway timeout
+2025-10-05 11:53:34,376 - __main__ - INFO -    Error: Full QKD protocol failed: Inter-KME communication failed: Gateway timeout
