@@ -1,30 +1,44 @@
-# Dependency directories (EXCLUDE node_modules ONLY)
-node_modules/
+# Dependency directories - Frontend
+qumail-frontend/node_modules/
 
-# Python virtual environments (EXCLUDE venv directories)
+# Python virtual environments - Backend
+qumail-backend/venv/
+
+
+# General fallback patterns
+qumail-frontend/node_modules/
 venv/
-env/
-ENV/
+
 
 # Python cache files
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
 
-# Frontend build artifacts (EXCLUDE compiled builds)
+# Frontend build artifacts
 qumail-frontend/dist/
+qumail-frontend/dist-electron/
 qumail-frontend/release/
+qumail-frontend/.vite/
 
 # Electron build artifacts
 qumail-electron/dist/
 qumail-electron/release/
+out/
 
 # Local databases and logs
 *.db
 *.db-shm
 *.db-wal
 *.log
+logs/
+
+# Environment variables
+.env.local
+.env.*.local
 
 # OS / editor cruft
 .DS_Store
@@ -32,11 +46,18 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.vscode/settings.json
+.vscode/.ropeproject
 
 # IDE specific files
 .vscode/
 .idea/
 *.sublime-*
+
+# Package manager locks (optional - comment out if you want to track them)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
 
 # IMPORTANT: Include all .env files (DO NOT IGNORE)
 # !**/.env
