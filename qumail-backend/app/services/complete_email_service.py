@@ -11,7 +11,7 @@ import inspect
 import html
 import textwrap
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from email.utils import parseaddr
@@ -78,32 +78,24 @@ class CompleteEmailService:
             # Encryption functions expect STRING not bytes
             
             # Encrypt based on security level
-            if security_level == 1:
-                encryption_result = await self.encryption_service.encrypt_level_1_otp(message_json, sender_email)
-            elif security_level == 2:
-                encryption_result = await self.encryption_service.encrypt_level_2_aes(message_json, sender_email)
-            elif security_level == 3:
-                encryption_result = await self.encryption_service.encrypt_level_3_pqc(message_json, sender_email)
-            elif security_level == 4:
-                encryption_result = await self.encryption_service.encrypt_level_4_standard(message_json, sender_email)
-            else:
-                raise ValueError(f"Invalid security level: {security_level}")
+            encryption_result = await self._encrypt_by_level(security_level, message_json, sender_email)
             
             # Generate unique flow ID
             flow_id = encryption_result['metadata'].get('flow_id', str(uuid.uuid4()))
             
             # Extract metadata for storage (tested functions use nested metadata)
-            metadata = encryption_result.get('metadata', {})
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except json.JSONDecodeError:
-                    metadata = {'raw_metadata': metadata}
-            else:
-                metadata = dict(metadata)
+            metadata = self._normalize_metadata(encryption_result.get('metadata'))
 
             encrypted_data = encryption_result.get('encrypted_content', encryption_result.get('encrypted_data'))
             
+            allowed_email_set = self._collect_allowed_email_set(
+                sender_email,
+                recipient_email,
+                cc,
+                bcc
+            )
+            allowed_email_list = sorted(allowed_email_set) if allowed_email_set else None
+
             # Create email record in database with encryption metadata
             # Store auth_tag in metadata so it's available during decryption
             if encryption_result.get('auth_tag'):
@@ -126,6 +118,7 @@ class CompleteEmailService:
                 is_read=False,
                 is_starred=False,
                 is_suspicious=False,
+                allowed_emails=allowed_email_list,
                 # Store encryption metadata
                 encryption_key_id=metadata.get('key_id', metadata.get('key_ids', {}).get('km1', '')),
                 encryption_algorithm=encryption_result.get('algorithm'),
@@ -159,16 +152,31 @@ class CompleteEmailService:
                 logger.info(f"Processing {len(attachments)} attachment(s) for encryption")
                 
                 for idx, att_data in enumerate(attachments):
-                    # Encrypt attachment content - use Level 4 for attachments to conserve quantum keys
                     att_content = att_data.get('content', '')
                     if att_content:
                         try:
-                            # Always use Level 4 (RSA+AES) for attachments to avoid exhausting quantum keys
-                            logger.info(f"Encrypting attachment {idx+1}/{len(attachments)}: {att_data.get('filename', 'unknown')}")
-                            att_encrypted = await self.encryption_service.encrypt_level_4_standard(att_content, sender_email)
-                            
+                            attachment_level = self._resolve_attachment_level(security_level)
+                            logger.info(
+                                "Encrypting attachment %d/%d (%s) with security level %d",
+                                idx + 1,
+                                len(attachments),
+                                att_data.get('filename', 'unknown'),
+                                attachment_level
+                            )
+                            att_encrypted = await self._encrypt_by_level(attachment_level, att_content, sender_email)
+
                             encrypted_att_content = att_encrypted.get('encrypted_content', att_encrypted.get('encrypted_data'))
-                            
+                            att_metadata = self._normalize_metadata(att_encrypted.get('metadata'))
+
+                            if att_encrypted.get('auth_tag'):
+                                att_metadata.setdefault('auth_tag', att_encrypted['auth_tag'])
+                            if att_encrypted.get('signature'):
+                                att_metadata.setdefault('signature', att_encrypted['signature'])
+
+                            attachment_flow_id = att_metadata.get('flow_id') or f"{flow_id}-att-{idx+1}"
+                            att_metadata['flow_id'] = attachment_flow_id
+                            attachment_key_id = att_metadata.get('key_id', att_metadata.get('key_ids', {}).get('km1', ''))
+
                             # Store encrypted attachment
                             from ..mongo_models import AttachmentDocument
                             att_doc = AttachmentDocument(
@@ -176,12 +184,18 @@ class CompleteEmailService:
                                 filename=att_data.get('filename', 'attachment'),
                                 content_type=att_data.get('mimeType', 'application/octet-stream'),
                                 size=len(att_content),
-                                encrypted_data=encrypted_att_content if isinstance(encrypted_att_content, str) else base64.b64encode(encrypted_att_content).decode('utf-8')
+                                encrypted_data=encrypted_att_content if isinstance(encrypted_att_content, str) else base64.b64encode(encrypted_att_content).decode('utf-8'),
+                                security_level=attachment_level,
+                                flow_id=attachment_flow_id,
+                                encryption_algorithm=att_encrypted.get('algorithm'),
+                                encryption_metadata=att_metadata,
+                                encryption_key_id=attachment_key_id,
+                                encryption_auth_tag=att_encrypted.get('auth_tag') or att_encrypted.get('signature')
                             )
                             
                             saved_att = await attachment_repo.create(att_doc)
                             attachment_ids.append(saved_att.id)
-                            logger.info(f"✓ Attachment encrypted and stored: {att_doc.filename} ({att_doc.size} bytes)")
+                            logger.info(f"✓ Attachment encrypted and stored: {att_doc.filename} ({att_doc.size} bytes) [L{attachment_level}]")
                         except Exception as att_error:
                             logger.error(f"Failed to encrypt attachment {att_data.get('filename', 'unknown')}: {att_error}")
                             # Continue with other attachments even if one fails
@@ -193,7 +207,16 @@ class CompleteEmailService:
                     
                     # Prepare encrypted email for Gmail
                     encrypted_subject = f"🔐 QuMail Encrypted L{security_level}"
-                    key_id = metadata.get('key_id') or metadata.get('key_ids', {}).get('km1') or encryption_result.get('key_id', 'unknown-key')
+                    
+                    # Extract key_id from multiple possible sources
+                    key_id = (
+                        metadata.get('key_id') or 
+                        metadata.get('key_ids', {}).get('km1') or 
+                        encryption_result.get('key_id') or
+                        encryption_result.get('metadata', {}).get('quantum_enhancement', {}).get('key_ids', {}).get('km1') or
+                        flow_id  # Fallback to flow_id as identifier
+                    )
+                    
                     ciphertext_b64 = ''
                     if encrypted_data:
                         if isinstance(encrypted_data, bytes):
@@ -225,6 +248,56 @@ class CompleteEmailService:
                     access_token = await oauth_service.get_valid_access_token(sender_email, db)
                     
                     # Prepare message for Gmail API
+                    headers = {
+                        'X-QuMail-Flow-ID': flow_id,
+                        'X-QuMail-Key-ID': key_id,
+                        'X-QuMail-Algorithm': encryption_result.get('algorithm', 'unknown'),
+                        'X-QuMail-Security-Level': str(security_level),
+                        'X-QuMail-Auth-Tag': metadata.get('auth_tag', ''),
+                        'X-QuMail-Nonce': metadata.get('nonce', '')
+                    }
+
+                    if metadata.get('salt'):
+                        headers['X-QuMail-Salt'] = metadata['salt']
+
+                    if metadata.get('required_size') is not None:
+                        headers['X-QuMail-Plaintext-Size'] = str(metadata['required_size'])
+                    if metadata.get('key_size') is not None:
+                        headers['X-QuMail-Total-Key-Bytes'] = str(metadata['key_size'])
+
+                    key_fragments_header = metadata.get('key_fragments')
+                    if key_fragments_header:
+                        try:
+                            headers['X-QuMail-Key-Fragments'] = json.dumps(key_fragments_header)
+                        except (TypeError, ValueError):
+                            headers['X-QuMail-Key-Fragments'] = ','.join(map(str, key_fragments_header))
+
+                    key_ids = metadata.get('key_ids') or {}
+                    if key_ids:
+                        try:
+                            headers['X-QuMail-Key-IDs'] = json.dumps(key_ids)
+                        except (TypeError, ValueError):
+                            logger.warning("Failed to serialize key_ids for Gmail headers", exc_info=True)
+
+                    # Add Level 3 PQC-specific headers
+                    if security_level == 3:
+                        if metadata.get('kem_ciphertext'):
+                            headers['X-QuMail-KEM-Ciphertext'] = metadata['kem_ciphertext']
+                        if metadata.get('kem_secret_key'):
+                            headers['X-QuMail-KEM-Secret-Key'] = metadata['kem_secret_key']
+                        if metadata.get('kem_public_key'):
+                            headers['X-QuMail-KEM-Public-Key'] = metadata['kem_public_key']
+                        if metadata.get('dsa_public_key'):
+                            headers['X-QuMail-DSA-Public-Key'] = metadata['dsa_public_key']
+                        if metadata.get('signature'):
+                            headers['X-QuMail-Signature'] = metadata['signature']
+                        quantum_enhancement = metadata.get('quantum_enhancement', {})
+                        if quantum_enhancement:
+                            try:
+                                headers['X-QuMail-Quantum-Enhancement'] = json.dumps(quantum_enhancement)
+                            except (TypeError, ValueError):
+                                logger.warning("Failed to serialize quantum_enhancement for Gmail headers")
+
                     message = {
                         'from': sender_email,
                         'to': recipient_email,
@@ -233,23 +306,55 @@ class CompleteEmailService:
                         'bodyHtml': encrypted_body_html,
                         'cc': cc,
                         'bcc': bcc,
-                        'headers': {
-                            'X-QuMail-Flow-ID': flow_id,
-                            'X-QuMail-Key-ID': key_id,
-                            'X-QuMail-Algorithm': encryption_result.get('algorithm', 'unknown'),
-                            'X-QuMail-Security-Level': str(security_level),
-                            'X-QuMail-Auth-Tag': metadata.get('auth_tag', ''),
-                            'X-QuMail-Nonce': metadata.get('nonce', '')
-                        }
+                        'headers': headers
                     }
                     
                     # Send via Gmail
                     result = await gmail_service.send_email(access_token, message)
                     gmail_message_id = result.get('messageId')
                     
-                    # Store Gmail message ID
+                    # Store Gmail message ID for sender's record
                     await email_repo.update(email.id, {"gmail_message_id": gmail_message_id})
                     email.gmail_message_id = gmail_message_id
+                    
+                    # Also create a receiver-side email document so the recipient can decrypt
+                    # This is crucial for the receiver to have the encryption metadata
+                    try:
+                        # Find the recipient's user record (if they exist in our system)
+                        user_repo = UserRepository(db)
+                        recipient_user = await user_repo.find_by_email(recipient_email)
+                        
+                        if recipient_user:
+                            # Create email document for the recipient
+                            receiver_email_doc = EmailDocument(
+                                flow_id=flow_id,  # Same flow_id for linking
+                                user_id=str(recipient_user.id),
+                                sender_email=sender_email,
+                                receiver_email=recipient_email,
+                                subject=f"[ENCRYPTED-L{security_level}] {subject[:50]}...",
+                                body_encrypted=encrypted_data,
+                                security_level=security_level,
+                                direction=EmailDirection.RECEIVED,
+                                timestamp=datetime.utcnow(),
+                                is_read=False,
+                                is_starred=False,
+                                is_suspicious=False,
+                                allowed_emails=allowed_email_list,
+                                gmail_message_id=gmail_message_id,
+                                # Copy all encryption metadata
+                                encryption_key_id=metadata.get('key_id', metadata.get('key_ids', {}).get('km1', '')),
+                                encryption_algorithm=encryption_result.get('algorithm'),
+                                encryption_iv=metadata.get('nonce'),
+                                encryption_auth_tag=encryption_result.get('auth_tag') or encryption_result.get('signature'),
+                                encryption_metadata=metadata
+                            )
+                            await email_repo.create(receiver_email_doc)
+                            logger.info(f"Created receiver-side email document for {recipient_email} with flow_id {flow_id}")
+                        else:
+                            logger.info(f"Recipient {recipient_email} not registered in QuMail - they can still decrypt via Gmail headers")
+                    except Exception as receiver_doc_error:
+                        logger.warning(f"Failed to create receiver email document: {receiver_doc_error}")
+                        # Non-fatal, continue
                     
                     logger.info(f"Encrypted email sent via Gmail: {gmail_message_id}")
                     
@@ -276,6 +381,124 @@ class CompleteEmailService:
         except Exception as e:
             logger.error(f"Error sending encrypted email: {e}")
             raise Exception(f"Failed to send encrypted email: {e}")
+
+    @staticmethod
+    def _normalize_email_address(value: Optional[Any]) -> Optional[str]:
+        """Return a consistently lowercased email string if present."""
+        if not value:
+            return None
+        if isinstance(value, bytes):
+            value = value.decode('utf-8', errors='ignore')
+        name, email_addr = parseaddr(str(value))
+        candidate = email_addr or str(value)
+        candidate = candidate.strip().lower()
+        return candidate or None
+
+    @classmethod
+    def _expand_address_field(cls, field: Optional[Any]) -> Set[str]:
+        """Expand list/dict/string representations into a normalized email set."""
+        emails: Set[str] = set()
+        if not field:
+            return emails
+        if isinstance(field, (list, tuple, set)):
+            items = field
+        else:
+            items = [field]
+        for item in items:
+            candidate: Optional[Any] = None
+            if isinstance(item, dict):
+                candidate = (
+                    item.get('email')
+                    or item.get('value')
+                    or item.get('address')
+                    or item.get('to')
+                )
+            else:
+                candidate = item
+            if not candidate:
+                continue
+            for segment in str(candidate).split(','):
+                normalized = cls._normalize_email_address(segment)
+                if normalized:
+                    emails.add(normalized)
+        return emails
+
+    @classmethod
+    def _collect_allowed_email_set(
+        cls,
+        sender_email: Optional[str],
+        primary_recipient: Optional[str],
+        cc: Optional[Any] = None,
+        bcc: Optional[Any] = None,
+        extra_addresses: Optional[List[str]] = None
+    ) -> Set[str]:
+        """Build the normalized set of participants allowed to decrypt."""
+        allowed: Set[str] = set()
+        for entry in (sender_email, primary_recipient):
+            normalized = cls._normalize_email_address(entry)
+            if normalized:
+                allowed.add(normalized)
+        allowed.update(cls._expand_address_field(cc))
+        allowed.update(cls._expand_address_field(bcc))
+        if extra_addresses:
+            allowed.update(cls._expand_address_field(extra_addresses))
+        return allowed
+
+    async def _encrypt_by_level(self, security_level: int, content: str, user_email: str) -> Dict[str, Any]:
+        """Route encryption requests to the correct level while validating input."""
+        if security_level == 1:
+            return await self.encryption_service.encrypt_level_1_otp(content, user_email)
+        if security_level == 2:
+            return await self.encryption_service.encrypt_level_2_aes(content, user_email)
+        if security_level == 3:
+            return await self.encryption_service.encrypt_level_3_pqc(content, user_email)
+        if security_level == 4:
+            return await self.encryption_service.encrypt_level_4_standard(content, user_email)
+        raise ValueError(f"Invalid security level: {security_level}")
+
+    async def _decrypt_by_level(
+        self,
+        security_level: int,
+        encrypted_data: str,
+        metadata: Dict[str, Any],
+        user_email: str
+    ) -> bytes:
+        """Route decryption requests to the appropriate level."""
+        if security_level == 1:
+            return await self.encryption_service.decrypt_level_1_otp(encrypted_data, metadata, user_email)
+        if security_level == 2:
+            return await self.encryption_service.decrypt_level_2_aes(encrypted_data, metadata, user_email)
+        if security_level == 3:
+            return await self.encryption_service.decrypt_level_3_pqc(encrypted_data, metadata, user_email)
+        if security_level == 4:
+            return await self.encryption_service.decrypt_level_4_standard(encrypted_data, metadata, user_email)
+        raise ValueError(f"Invalid security level: {security_level}")
+
+    @staticmethod
+    def _normalize_metadata(raw_metadata: Optional[Any]) -> Dict[str, Any]:
+        """Ensure encryption metadata is always a mutable dictionary."""
+        if not raw_metadata:
+            return {}
+        if isinstance(raw_metadata, dict):
+            return dict(raw_metadata)
+        if isinstance(raw_metadata, str):
+            try:
+                parsed = json.loads(raw_metadata)
+                return parsed if isinstance(parsed, dict) else {'raw_metadata': parsed}
+            except json.JSONDecodeError:
+                return {'raw_metadata': raw_metadata}
+        return dict(raw_metadata)
+
+    def _resolve_attachment_level(self, requested_level: Optional[int]) -> int:
+        """Attachments support security levels 2-4; fallback to Level 4 otherwise."""
+        if requested_level in (2, 3, 4):
+            return requested_level
+        if requested_level and requested_level != 4:
+            logger.info(
+                "Attachment security level %s unsupported; defaulting to Level 4",
+                requested_level
+            )
+        return 4
     
     def _build_gmail_html_template(
         self,
@@ -449,10 +672,19 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                         else:
                             # Not decrypted yet (legacy cache), decrypt now
                             try:
-                                logger.info(f"Decrypting attachment for cached email: {att.filename}")
-                                att_metadata = {'flow_id': email.flow_id}
-                                decrypted_att = await self.encryption_service.decrypt_level_4_standard(
-                                    att.encrypted_data, att_metadata, email.receiver_email
+                                attachment_level = self._resolve_attachment_level(att.security_level or email.security_level)
+                                att_metadata = self._normalize_metadata(att.encryption_metadata)
+                                att_metadata.setdefault('flow_id', att.flow_id or email.flow_id)
+                                logger.info(
+                                    "Decrypting attachment for cached email: %s using level %d",
+                                    att.filename,
+                                    attachment_level
+                                )
+                                decrypted_att = await self._decrypt_by_level(
+                                    attachment_level,
+                                    att.encrypted_data,
+                                    att_metadata,
+                                    email.receiver_email
                                 )
                                 content = decrypted_att.decode('utf-8') if isinstance(decrypted_att, bytes) else decrypted_att
                                 
@@ -468,6 +700,7 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                             'filename': att.filename,
                             'content': content,
                             'mimeType': att.content_type,
+                            'mime_type': att.content_type,
                             'size': att.size
                         })
                     
@@ -491,6 +724,43 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
             
             logger.info(f"Decrypting email {email_id} with security level {email.security_level} (no cache, will call KME)")
             
+            # Handle non-encrypted emails (security level 0)
+            if email.security_level == 0 or email.security_level is None:
+                logger.info(f"Email {email_id} is not quantum-encrypted (level 0), returning plain content")
+                # For non-encrypted emails, just return the body as-is
+                plain_body = email.body_encrypted or email.decrypted_body or ""
+                
+                # Try to parse as JSON message data, or create simple message
+                try:
+                    message_data = json.loads(plain_body)
+                except (json.JSONDecodeError, TypeError):
+                    message_data = {
+                        'subject': email.subject,
+                        'body': plain_body,
+                        'from': email.sender_email,
+                        'to': email.receiver_email
+                    }
+                
+                # Mark as read
+                await email_repo.mark_as_read(email.id)
+                
+                return {
+                    'success': True,
+                    'email_id': email.id,
+                    'flow_id': email.flow_id,
+                    'subject': message_data.get('subject', email.subject),
+                    'body': message_data.get('body', plain_body),
+                    'from': message_data.get('from', email.sender_email),
+                    'to': message_data.get('to', email.receiver_email),
+                    'timestamp': email.timestamp.isoformat() if email.timestamp else None,
+                    'security_level': 0,
+                    'algorithm': 'None',
+                    'decrypted_at': datetime.utcnow().isoformat(),
+                    'attachments': [],
+                    'from_cache': False,
+                    'is_plain_email': True
+                }
+            
             # Build metadata dict from stored fields
             metadata = {
                 'flow_id': email.flow_id,
@@ -501,13 +771,7 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
             }
             
             # Add any extra metadata from JSON field (handle legacy JSON strings)
-            extra_metadata = email.encryption_metadata
-            if isinstance(extra_metadata, str):
-                try:
-                    extra_metadata = json.loads(extra_metadata)
-                except json.JSONDecodeError:
-                    extra_metadata = {'raw_metadata': extra_metadata}
-
+            extra_metadata = self._normalize_metadata(email.encryption_metadata)
             if extra_metadata:
                 metadata.update(extra_metadata)
             
@@ -556,12 +820,20 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                         decrypted_content = att.decrypted_content
                         logger.info(f"✓ Using cached decrypted content for attachment {att.filename}")
                     else:
-                        # Attachments are always encrypted with Level 4 (to conserve quantum keys)
-                        att_metadata = {'flow_id': email.flow_id}
+                        attachment_level = self._resolve_attachment_level(att.security_level or email.security_level)
+                        att_metadata = self._normalize_metadata(att.encryption_metadata)
+                        att_metadata.setdefault('flow_id', att.flow_id or email.flow_id)
                         
-                        logger.info(f"Decrypting attachment: {att.filename}")
-                        decrypted_att = await self.encryption_service.decrypt_level_4_standard(
-                            att.encrypted_data, att_metadata, email.receiver_email
+                        logger.info(
+                            "Decrypting attachment: %s with level %d",
+                            att.filename,
+                            attachment_level
+                        )
+                        decrypted_att = await self._decrypt_by_level(
+                            attachment_level,
+                            att.encrypted_data,
+                            att_metadata,
+                            email.receiver_email
                         )
                         
                         decrypted_content = decrypted_att.decode('utf-8') if isinstance(decrypted_att, bytes) else decrypted_att
@@ -575,6 +847,7 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                         'filename': att.filename,
                         'content': decrypted_content,
                         'mimeType': att.content_type,
+                        'mime_type': att.content_type,
                         'size': att.size
                     })
                     logger.info(f"✓ Decrypted attachment: {att.filename}")
@@ -723,12 +996,24 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                 or ''
             )
             recipient_display = gmail_msg.get('recipient') or user_email
+            cc_value = gmail_msg.get('cc')
+            bcc_value = gmail_msg.get('bcc')
+            reply_to_value = gmail_msg.get('replyTo')
             sender_name, sender_email = parseaddr(sender_display)
             receiver_name, receiver_email = parseaddr(recipient_display)
             if not sender_email:
                 sender_email = sender_display or user_email
             if not receiver_email:
                 receiver_email = recipient_display or user_email
+
+            allowed_email_set = self._collect_allowed_email_set(
+                sender_email,
+                receiver_email,
+                cc=cc_value,
+                bcc=bcc_value,
+                extra_addresses=[reply_to_value, sender_display, recipient_display]
+            )
+            allowed_email_list = sorted(allowed_email_set) if allowed_email_set else None
 
             metadata = {
                 'source': 'gmail',
@@ -742,7 +1027,12 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                 'attachments': gmail_msg.get('attachments', []),
                 'gmailMessageId': gmail_message_id,
                 'senderDisplay': sender_display,
-                'receiverDisplay': recipient_display
+                'receiverDisplay': recipient_display,
+                'toHeader': recipient_display,
+                'fromHeader': sender_display,
+                'cc': cc_value,
+                'bcc': bcc_value,
+                'replyTo': reply_to_value
             }
 
             custom_headers = gmail_msg.get('customHeaders', {}) or {}
@@ -751,6 +1041,11 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
             encryption_algorithm = None
             encryption_key_id = None
             flow_id = None
+            header_salt = None
+            header_key_ids: Dict[str, str] = {}
+            header_key_fragments: List[str] = []
+            plaintext_size_header: Optional[int] = None
+            total_key_bytes_header: Optional[int] = None
 
             if 'x-qumail-security-level' in custom_headers:
                 try:
@@ -767,6 +1062,51 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
 
             if 'x-qumail-flow-id' in custom_headers:
                 flow_id = custom_headers['x-qumail-flow-id']
+
+            if 'x-qumail-salt' in custom_headers:
+                header_salt = custom_headers['x-qumail-salt']
+
+            if 'x-qumail-key-ids' in custom_headers:
+                raw_key_ids = custom_headers['x-qumail-key-ids']
+                parsed_key_ids: Dict[str, str] = {}
+                try:
+                    parsed = json.loads(raw_key_ids)
+                    if isinstance(parsed, dict):
+                        parsed_key_ids = {str(k): str(v) for k, v in parsed.items() if v}
+                except (json.JSONDecodeError, TypeError):
+                    for segment in raw_key_ids.split(','):
+                        if ':' in segment:
+                            k, v = segment.split(':', 1)
+                            parsed_key_ids[k.strip()] = v.strip()
+                if parsed_key_ids:
+                    header_key_ids = parsed_key_ids
+                    if not encryption_key_id:
+                        encryption_key_id = header_key_ids.get('km1') or next(iter(header_key_ids.values()), None)
+
+            if 'x-qumail-key-fragments' in custom_headers:
+                raw_fragments = custom_headers['x-qumail-key-fragments']
+                parsed_fragments: List[str] = []
+                try:
+                    decoded = json.loads(raw_fragments)
+                    if isinstance(decoded, list):
+                        parsed_fragments = [str(item) for item in decoded if item]
+                except (json.JSONDecodeError, TypeError):
+                    parsed_fragments = [seg.strip() for seg in raw_fragments.split(',') if seg.strip()]
+                if parsed_fragments:
+                    header_key_fragments = parsed_fragments
+
+            for header_name in ('x-qumail-plaintext-size', 'x-qumail-required-size'):
+                if header_name in custom_headers and plaintext_size_header is None:
+                    try:
+                        plaintext_size_header = int(custom_headers[header_name])
+                    except (ValueError, TypeError):
+                        plaintext_size_header = None
+
+            if 'x-qumail-total-key-bytes' in custom_headers:
+                try:
+                    total_key_bytes_header = int(custom_headers['x-qumail-total-key-bytes'])
+                except (ValueError, TypeError):
+                    total_key_bytes_header = None
 
             if is_qumail_encrypted:
                 if not encryption_algorithm:
@@ -799,12 +1139,47 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                 metadata['auth_tag'] = custom_headers['x-qumail-auth-tag']
             if 'x-qumail-nonce' in custom_headers:
                 metadata['nonce'] = custom_headers['x-qumail-nonce']
+            if header_salt:
+                metadata['salt'] = header_salt
+            if header_key_ids:
+                metadata['key_ids'] = header_key_ids
+            if header_key_fragments:
+                metadata['key_fragments'] = header_key_fragments
+            if plaintext_size_header is not None:
+                metadata['required_size'] = plaintext_size_header
+            if total_key_bytes_header is not None:
+                metadata['key_size'] = total_key_bytes_header
+
+            # Extract Level 3 PQC-specific headers
+            if 'x-qumail-kem-ciphertext' in custom_headers:
+                metadata['kem_ciphertext'] = custom_headers['x-qumail-kem-ciphertext']
+                metadata['kyber_ciphertext'] = custom_headers['x-qumail-kem-ciphertext']  # Legacy alias
+            if 'x-qumail-kem-secret-key' in custom_headers:
+                metadata['kem_secret_key'] = custom_headers['x-qumail-kem-secret-key']
+                metadata['kyber_private_key'] = custom_headers['x-qumail-kem-secret-key']  # Legacy alias
+            if 'x-qumail-kem-public-key' in custom_headers:
+                metadata['kem_public_key'] = custom_headers['x-qumail-kem-public-key']
+                metadata['kyber_public_key'] = custom_headers['x-qumail-kem-public-key']  # Legacy alias
+            if 'x-qumail-dsa-public-key' in custom_headers:
+                metadata['dsa_public_key'] = custom_headers['x-qumail-dsa-public-key']
+                metadata['dilithium_public_key'] = custom_headers['x-qumail-dsa-public-key']  # Legacy alias
+            if 'x-qumail-signature' in custom_headers:
+                metadata['signature'] = custom_headers['x-qumail-signature']
+            if 'x-qumail-quantum-enhancement' in custom_headers:
+                try:
+                    metadata['quantum_enhancement'] = json.loads(custom_headers['x-qumail-quantum-enhancement'])
+                except (json.JSONDecodeError, TypeError):
+                    metadata['quantum_enhancement'] = {'enabled': False}
 
             metadata['sync_type'] = 'qumail_encrypted' if is_qumail_encrypted else 'gmail_plain'
             if encryption_algorithm:
                 metadata['algorithm'] = encryption_algorithm
             if security_level:
                 metadata['security_level'] = security_level
+            if encryption_key_id:
+                metadata['key_id'] = encryption_key_id
+            if flow_id:
+                metadata['flow_id'] = flow_id
             if sender_name:
                 metadata['senderName'] = sender_name
             if receiver_name:
@@ -813,12 +1188,37 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
             # If this flow already exists, update metadata/Gmail ID and return the existing record
             existing_flow = await email_repo.find_by_flow_id(flow_id)
             if existing_flow:
+                existing_meta = existing_flow.encryption_metadata or {}
+                if isinstance(existing_meta, str):
+                    try:
+                        existing_meta = json.loads(existing_meta)
+                    except json.JSONDecodeError:
+                        existing_meta = {'raw_metadata': existing_meta}
+
+                merged_meta = dict(existing_meta)
+                merged_meta.update(metadata)
+                if isinstance(existing_meta.get('key_ids'), dict) or isinstance(metadata.get('key_ids'), dict):
+                    merged_meta['key_ids'] = {
+                        **(existing_meta.get('key_ids') or {}),
+                        **(metadata.get('key_ids') or {})
+                    }
+                if metadata.get('key_fragments'):
+                    merged_meta['key_fragments'] = metadata['key_fragments']
+
+                merged_allowed: Set[str] = set(existing_flow.allowed_emails or [])
+                merged_allowed.update(allowed_email_set)
+
                 updates: Dict[str, Any] = {
                     "gmail_message_id": gmail_message_id,
-                    "encryption_metadata": metadata,
+                    "encryption_metadata": merged_meta,
                     "sender_email": existing_flow.sender_email or sender_email,
-                    "receiver_email": existing_flow.receiver_email or receiver_email
+                    "receiver_email": existing_flow.receiver_email or receiver_email,
+                    "encryption_key_id": existing_flow.encryption_key_id or encryption_key_id,
+                    "encryption_iv": existing_flow.encryption_iv or metadata.get('nonce') or existing_meta.get('nonce'),
+                    "encryption_auth_tag": existing_flow.encryption_auth_tag or metadata.get('auth_tag') or existing_meta.get('auth_tag')
                 }
+                if merged_allowed:
+                    updates["allowed_emails"] = sorted(merged_allowed)
                 await email_repo.update(existing_flow.id, updates)
                 logger.info(
                     "Flow %s already stored; metadata refreshed and Gmail ID linked",
@@ -854,7 +1254,8 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                 encryption_algorithm=encryption_algorithm,
                 encryption_iv=metadata.get('nonce'),
                 encryption_auth_tag=metadata.get('auth_tag'),
-                encryption_metadata=metadata
+                encryption_metadata=metadata,
+                allowed_emails=allowed_email_list
             )
 
             await email_repo.create(email_doc)

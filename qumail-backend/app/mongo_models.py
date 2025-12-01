@@ -14,10 +14,18 @@ class UserDocument(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), alias="_id")
     email: str
     display_name: Optional[str] = None
+    password_hash: Optional[str] = None  # Hashed password for login
     oauth_access_token: Optional[str] = None
     oauth_refresh_token: Optional[str] = None
     oauth_token_expiry: Optional[datetime] = None
     session_token: Optional[str] = None
+    # TOTP 2FA fields
+    totp_secret: Optional[str] = None  # Encrypted TOTP secret for Google Authenticator
+    totp_enabled: bool = False  # Whether 2FA is enabled
+    totp_verified: bool = False  # Whether user has verified their 2FA setup
+    backup_codes: Optional[List[str]] = None  # Encrypted backup codes (single-use)
+    backup_codes_used: Optional[List[str]] = None  # Track which backup codes have been used
+    # Crypto keys
     rsa_public_key_pem: Optional[str] = None
     rsa_private_key_pem: Optional[str] = None
     kyber_public_key: Optional[bytes] = None
@@ -38,6 +46,7 @@ class EmailDocument(BaseModel):
     user_id: str
     sender_email: str
     receiver_email: str
+    allowed_emails: Optional[List[str]] = None
     subject: Optional[str] = None
     body_encrypted: Optional[str] = None
     decrypted_body: Optional[str] = None  # Cached plaintext after first decryption
@@ -135,6 +144,12 @@ class AttachmentDocument(BaseModel):
     size: int
     encrypted_data: Optional[str] = None
     decrypted_content: Optional[str] = None  # Cached decrypted content
+    security_level: Optional[int] = None
+    flow_id: Optional[str] = None
+    encryption_algorithm: Optional[str] = None
+    encryption_metadata: Optional[Dict[str, Any]] = None
+    encryption_key_id: Optional[str] = None
+    encryption_auth_tag: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
     class Config:

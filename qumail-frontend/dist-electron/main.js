@@ -88,6 +88,7 @@ var node_path_1 = require("node:path");
 var child_process_1 = require("child_process");
 var axios_1 = __importDefault(require("axios"));
 var http = __importStar(require("http"));
+var database = __importStar(require("./database"));
 // The built directory structure
 //
 // ├─┬─┬ dist
@@ -101,31 +102,22 @@ process.env.DIST = (0, node_path_1.join)(__dirname, '../dist');
 process.env.VITE_PUBLIC = electron_1.app.isPackaged ? process.env.DIST : (0, node_path_1.join)(process.env.DIST, '../public');
 var win = null;
 var tray = null;
-var backendProcess = null;
-var kme1Process = null;
-var kme2Process = null;
 var isQuitting = false;
 var callbackServer = null;
+var backendProcess = null;
 // 🚧 Use ['ENV_NAME'] avoid vite:define plugin - Vite@2.x
 var VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 var isDev = !electron_1.app.isPackaged;
 var BACKEND_PORT = 8000;
-var KME1_PORT = 8010;
-var KME2_PORT = 8020;
-// Get resource paths
+// KME servers are on Render (cloud) - not local
+var KME1_URL = 'https://qumail-kme1-brzq.onrender.com';
+var KME2_URL = 'https://qumail-kme2-brzq.onrender.com';
+// Get resource paths for bundled Python apps
 function getResourcePath(relativePath) {
     if (isDev) {
         return (0, node_path_1.join)(__dirname, '..', '..', relativePath);
     }
     return (0, node_path_1.join)(process.resourcesPath, relativePath);
-}
-// Python executable path
-function getPythonPath() {
-    if (isDev) {
-        return process.platform === 'win32' ? 'python' : 'python3';
-    }
-    var pythonExe = process.platform === 'win32' ? 'python.exe' : 'python';
-    return (0, node_path_1.join)(process.resourcesPath, 'python', pythonExe);
 }
 // Start Python backend server
 function startBackendServer() {
@@ -135,13 +127,14 @@ function startBackendServer() {
             return [2 /*return*/, new Promise(function (resolve, reject) {
                     var _a, _b;
                     var backendPath = getResourcePath('qumail-backend');
-                    var pythonPath = getPythonPath();
+                    var pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
                     console.log('[Backend] Starting FastAPI server...');
                     console.log('[Backend] Path:', backendPath);
-                    console.log('[Backend] Python:', pythonPath);
-                    var env = __assign(__assign({}, process.env), { PYTHONUNBUFFERED: '1', QUMAIL_ENV: 'electron', BACKEND_PORT: BACKEND_PORT.toString(), KME1_URL: "http://localhost:".concat(KME1_PORT), KME2_URL: "http://localhost:".concat(KME2_PORT) });
+                    console.log('[Backend] Using KME1:', KME1_URL);
+                    console.log('[Backend] Using KME2:', KME2_URL);
+                    var env = __assign(__assign({}, process.env), { PYTHONUNBUFFERED: '1', QUMAIL_ENV: 'electron', BACKEND_PORT: BACKEND_PORT.toString(), KM1_BASE_URL: KME1_URL, KM2_BASE_URL: KME2_URL });
                     var args = ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', BACKEND_PORT.toString()];
-                    backendProcess = (0, child_process_1.spawn)(pythonPath, args, {
+                    backendProcess = (0, child_process_1.spawn)(pythonCmd, args, {
                         cwd: backendPath,
                         env: env,
                         shell: true,
@@ -150,14 +143,14 @@ function startBackendServer() {
                         console.log('[Backend]', data.toString().trim());
                     });
                     (_b = backendProcess.stderr) === null || _b === void 0 ? void 0 : _b.on('data', function (data) {
-                        console.error('[Backend Error]', data.toString().trim());
+                        console.error('[Backend]', data.toString().trim());
                     });
                     backendProcess.on('error', function (error) {
                         console.error('[Backend] Failed to start:', error);
                         reject(error);
                     });
                     // Wait for backend to be ready
-                    var maxRetries = 30;
+                    var maxRetries = 60;
                     var retries = 0;
                     var checkBackend = setInterval(function () { return __awaiter(_this, void 0, void 0, function () {
                         var response, error_1;
@@ -179,48 +172,14 @@ function startBackendServer() {
                                     retries++;
                                     if (retries >= maxRetries) {
                                         clearInterval(checkBackend);
-                                        reject(new Error('Backend server failed to start within timeout'));
+                                        console.log('[Backend] Server did not respond, continuing anyway...');
+                                        resolve(); // Don't reject, let app start anyway
                                     }
                                     return [3 /*break*/, 3];
                                 case 3: return [2 /*return*/];
                             }
                         });
                     }); }, 1000);
-                })];
-        });
-    });
-}
-// Start KME simulators
-function startKMEServers() {
-    return __awaiter(this, void 0, void 0, function () {
-        return __generator(this, function (_a) {
-            return [2 /*return*/, new Promise(function (resolve) {
-                    var _a, _b;
-                    var kmePath = getResourcePath('next-door-key-simulator');
-                    var pythonPath = getPythonPath();
-                    console.log('[KME] Starting quantum key management servers...');
-                    var kme1Env = __assign(__assign({}, process.env), { PYTHONUNBUFFERED: '1', KME_PORT: KME1_PORT.toString(), KME_ID: 'KME1' });
-                    kme1Process = (0, child_process_1.spawn)(pythonPath, ['app.py'], {
-                        cwd: kmePath,
-                        env: kme1Env,
-                        shell: true,
-                    });
-                    (_a = kme1Process.stdout) === null || _a === void 0 ? void 0 : _a.on('data', function (data) {
-                        console.log('[KME1]', data.toString().trim());
-                    });
-                    var kme2Env = __assign(__assign({}, process.env), { PYTHONUNBUFFERED: '1', KME_PORT: KME2_PORT.toString(), KME_ID: 'KME2' });
-                    kme2Process = (0, child_process_1.spawn)(pythonPath, ['app.py'], {
-                        cwd: kmePath,
-                        env: kme2Env,
-                        shell: true,
-                    });
-                    (_b = kme2Process.stdout) === null || _b === void 0 ? void 0 : _b.on('data', function (data) {
-                        console.log('[KME2]', data.toString().trim());
-                    });
-                    setTimeout(function () {
-                        console.log('[KME] Servers started');
-                        resolve();
-                    }, 5000);
                 })];
         });
     });
@@ -290,6 +249,7 @@ function createWindow() {
         backgroundColor: '#0f172a',
         center: true, // Center window on screen
         autoHideMenuBar: true,
+        show: false, // Don't show until ready
         webPreferences: {
             preload: (0, node_path_1.join)(__dirname, 'preload.js'),
             nodeIntegration: false,
@@ -299,7 +259,6 @@ function createWindow() {
             backgroundThrottling: false,
             disableBlinkFeatures: 'Auxclick',
         },
-        show: false, // Don't show until ready
     };
     // Add icon if it exists
     try {
@@ -320,10 +279,10 @@ function createWindow() {
     console.log('[Window] Current window count after creation:', electron_1.BrowserWindow.getAllWindows().length);
     win.once('ready-to-show', function () {
         console.log('[Window] Window ready-to-show event fired');
+        win === null || win === void 0 ? void 0 : win.maximize(); // Start maximized
         win === null || win === void 0 ? void 0 : win.show();
         win === null || win === void 0 ? void 0 : win.focus();
-        console.log('[Window] Window shown and focused');
-        // Don't auto-open DevTools - user can press F12 if needed
+        console.log('[Window] Window shown maximized and focused');
     });
     win.webContents.on('did-finish-load', function () {
         console.log('[Window] Content finished loading');
@@ -347,9 +306,15 @@ function createWindow() {
         });
     }
     else {
-        var indexPath = (0, node_path_1.join)(process.env.DIST, 'index.html');
+        // In production, load from the dist folder relative to __dirname
+        var indexPath = (0, node_path_1.join)(__dirname, '../dist/index.html');
         console.log('[Window] Loading production file:', indexPath);
-        win.loadFile(indexPath);
+        console.log('[Window] __dirname:', __dirname);
+        win.loadFile(indexPath).then(function () {
+            console.log('[Window] loadFile completed successfully');
+        }).catch(function (error) {
+            console.error('[Window] loadFile error:', error);
+        });
     }
     win.webContents.setWindowOpenHandler(function (_a) {
         var url = _a.url;
@@ -366,17 +331,13 @@ function createWindow() {
 // Cleanup on exit
 function cleanup() {
     console.log('[Cleanup] Shutting down services...');
+    // Close database
+    database.closeDatabase();
+    // Kill backend process
     if (backendProcess) {
+        console.log('[Cleanup] Stopping backend server...');
         backendProcess.kill();
         backendProcess = null;
-    }
-    if (kme1Process) {
-        kme1Process.kill();
-        kme1Process = null;
-    }
-    if (kme2Process) {
-        kme2Process.kill();
-        kme2Process = null;
     }
 }
 // OAuth callback handling - removed custom protocol, using localhost redirect instead
@@ -389,12 +350,16 @@ electron_1.app.whenReady().then(function () { return __awaiter(void 0, void 0, v
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                _a.trys.push([0, 5, , 6]);
+                _a.trys.push([0, 2, , 3]);
                 console.log('[App] =================================================');
                 console.log('[App] Starting QuMail Secure Email...');
                 console.log('[App] Process ID:', process.pid);
                 console.log('[App] Is Dev Mode:', isDev);
                 console.log('[App] =================================================');
+                // Initialize local SQLite database
+                console.log('[App] Initializing local database...');
+                database.initDatabase();
+                console.log('[App] Local database initialized!');
                 gotTheLock = electron_1.app.requestSingleInstanceLock();
                 if (!gotTheLock) {
                     console.log('[App] Another instance is already running. Exiting...');
@@ -409,34 +374,26 @@ electron_1.app.whenReady().then(function () { return __awaiter(void 0, void 0, v
                         win.focus();
                     }
                 });
-                if (!isDev) return [3 /*break*/, 1];
-                // In dev mode, backend and KME run separately
-                console.log('[App] Development mode - expecting external backend');
-                return [3 /*break*/, 4];
-            case 1: 
-            // In production, start embedded backend
-            return [4 /*yield*/, startKMEServers()];
-            case 2:
-                // In production, start embedded backend
-                _a.sent();
+                // Start backend server (KME servers are on Render cloud)
+                console.log('[App] Starting backend server...');
+                console.log('[App] KME servers on Render:', KME1_URL, KME2_URL);
                 return [4 /*yield*/, startBackendServer()];
-            case 3:
+            case 1:
                 _a.sent();
-                _a.label = 4;
-            case 4:
+                console.log('[App] Backend server started!');
                 console.log('[App] Creating main window...');
                 createWindow();
                 createTray();
                 createMenu();
                 console.log('[App] QuMail is ready!');
-                return [3 /*break*/, 6];
-            case 5:
+                return [3 /*break*/, 3];
+            case 2:
                 error_2 = _a.sent();
                 console.error('[App] Failed to start:', error_2);
                 electron_1.dialog.showErrorBox('Startup Error', 'Failed to start QuMail backend services. Please check the logs and try again.');
                 electron_1.app.quit();
-                return [3 /*break*/, 6];
-            case 6: return [2 /*return*/];
+                return [3 /*break*/, 3];
+            case 3: return [2 /*return*/];
         }
     });
 }); });
@@ -697,6 +654,223 @@ electron_1.ipcMain.handle('start-oauth-flow', function (_1, _a) { return __await
             })];
     });
 }); });
+// ==================== DATABASE IPC HANDLERS ====================
+// Get emails from local database
+electron_1.ipcMain.handle('db-get-emails', function (_event, folder, limit, offset) {
+    try {
+        return { success: true, data: database.getEmails(folder, limit || 100, offset || 0) };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get email by ID
+electron_1.ipcMain.handle('db-get-email', function (_event, id) {
+    try {
+        return { success: true, data: database.getEmailById(id) };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get email by flow ID
+electron_1.ipcMain.handle('db-get-email-by-flow-id', function (_event, flowId) {
+    try {
+        return { success: true, data: database.getEmailByFlowId(flowId) };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Save email to local database
+electron_1.ipcMain.handle('db-save-email', function (_event, email) {
+    try {
+        database.saveEmail(email);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Save multiple emails
+electron_1.ipcMain.handle('db-save-emails', function (_event, emails) {
+    try {
+        database.saveEmails(emails);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Update email status
+electron_1.ipcMain.handle('db-update-email', function (_event, id, updates) {
+    try {
+        database.updateEmailStatus(id, updates);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Delete email
+electron_1.ipcMain.handle('db-delete-email', function (_event, id) {
+    try {
+        database.deleteEmail(id);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get email counts
+electron_1.ipcMain.handle('db-get-email-counts', function () {
+    try {
+        return { success: true, data: database.getEmailCounts() };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get unread counts
+electron_1.ipcMain.handle('db-get-unread-counts', function () {
+    try {
+        return { success: true, data: database.getUnreadCounts() };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Search emails
+electron_1.ipcMain.handle('db-search-emails', function (_event, query, folder) {
+    try {
+        return { success: true, data: database.searchEmails(query, folder) };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Add to sync queue
+electron_1.ipcMain.handle('db-add-to-sync-queue', function (_event, operation, emailId, data) {
+    try {
+        database.addToSyncQueue(operation, emailId, data);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get pending sync items
+electron_1.ipcMain.handle('db-get-pending-sync', function (_event, limit) {
+    try {
+        return { success: true, data: database.getPendingSyncItems(limit) };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Complete sync item
+electron_1.ipcMain.handle('db-complete-sync-item', function (_event, id) {
+    try {
+        database.completeSyncItem(id);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Fail sync item
+electron_1.ipcMain.handle('db-fail-sync-item', function (_event, id, error) {
+    try {
+        database.failSyncItem(id, error);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get sync queue count
+electron_1.ipcMain.handle('db-get-sync-queue-count', function () {
+    try {
+        return { success: true, data: database.getSyncQueueCount() };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get cached decryption
+electron_1.ipcMain.handle('db-get-cached-decryption', function (_event, emailId) {
+    try {
+        return { success: true, data: database.getCachedDecryption(emailId) };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Cache decrypted content
+electron_1.ipcMain.handle('db-cache-decryption', function (_event, cache) {
+    try {
+        database.cacheDecryptedContent(cache);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get/set settings
+electron_1.ipcMain.handle('db-get-setting', function (_event, key) {
+    try {
+        return { success: true, data: database.getSetting(key) };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('db-set-setting', function (_event, key, value) {
+    try {
+        database.setSetting(key, value);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Sync metadata
+electron_1.ipcMain.handle('db-get-last-sync', function () {
+    try {
+        return { success: true, data: database.getLastSyncTime() };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('db-set-last-sync', function (_event, time) {
+    try {
+        database.setLastSyncTime(time);
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Get database stats
+electron_1.ipcMain.handle('db-get-stats', function () {
+    try {
+        return { success: true, data: database.getDatabaseStats() };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Clear all data (for logout)
+electron_1.ipcMain.handle('db-clear-all', function () {
+    try {
+        database.clearAllData();
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
 // Security: Prevent new window creation
 electron_1.app.on('web-contents-created', function (_, contents) {
     contents.setWindowOpenHandler(function () {

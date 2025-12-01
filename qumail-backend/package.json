@@ -1,0 +1,16 @@
+{
+  "name": "qumail-backend",
+  "version": "1.0.0",
+  "description": "A quantum-enhanced secure email system with multiple encryption levels, built using FastAPI and integrated with ETSI GS QKD-014 compliant Key Management (KM) servers.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

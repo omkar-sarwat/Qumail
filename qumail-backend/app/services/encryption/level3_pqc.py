@@ -1,13 +1,20 @@
+"""
+Level 3: Post-Quantum Cryptography (PQC) Encryption using PQCrypto Library
+
+This module implements NIST-standardized post-quantum cryptographic algorithms:
+- ML-KEM-1024 (standardized Kyber) for Key Encapsulation
+- ML-DSA-87 (standardized Dilithium) for Digital Signatures
+- AES-256-GCM for symmetric encryption
+
+Using the pqcrypto library: https://pypi.org/project/pqcrypto/
+"""
 import logging
 import base64
-import os
 import secrets
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.backends import default_backend
 
@@ -24,21 +31,26 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# NIST-approved post-quantum algorithms
-KYBER_ALGORITHM = "Kyber1024"  # Key encapsulation mechanism
-DILITHIUM_ALGORITHM = "Dilithium5"  # Digital signature algorithm
+# Constants
 KM1_MASTER_SAE_ID = "25840139-0dd4-49ae-ba1e-b86731601803"
+KM2_SLAVE_SAE_ID = "c565d5aa-8670-4446-8471-b0e53e315d2a"
 
-# PQC availability check
+# PQCrypto availability check
+PQC_AVAILABLE = False
+ml_kem = None
+ml_dsa = None
+
 try:
-    import oqs  # type: ignore
+    # Import ML-KEM-1024 (standardized Kyber) for Key Encapsulation
+    from pqcrypto.kem import ml_kem_1024 as ml_kem
+    # Import ML-DSA-87 (standardized Dilithium) for Digital Signatures
+    from pqcrypto.sign import ml_dsa_87 as ml_dsa
     PQC_AVAILABLE = True
-    logger.info("liboqs loaded successfully - using real PQC algorithms")
-except (ImportError, RuntimeError, OSError) as e:
-    PQC_AVAILABLE = False
-    logger.warning(f"liboqs not available ({type(e).__name__}): {e}")
-    logger.warning("Level 3 PQC using secure placeholder implementations")
-    oqs = None  # Set to None to avoid NameError
+    logger.info("✅ PQCrypto loaded successfully - using ML-KEM-1024 and ML-DSA-87")
+except ImportError as e:
+    logger.warning(f"⚠️ PQCrypto not available: {e}")
+    logger.warning("Level 3 PQC will use secure placeholder implementations")
+
 
 def is_pqc_available():
     """Check if post-quantum cryptography is available"""
@@ -60,151 +72,202 @@ class KeyPairNotFoundError(Level3SecurityError):
     pass
 
 
-def derive_session_key(shared_secret: bytes, flow_id: str) -> bytes:
+class MLKEM:
     """
-    Derive AES-256 session key from Kyber shared secret using HKDF
+    ML-KEM-1024 Key Encapsulation Mechanism (NIST Standardized Kyber)
     
-    Security Features:
-    - HKDF-SHA256 for proper key derivation
-    - Flow-specific salt for unique keys per email
-    - Post-quantum resistant key material
+    ML-KEM (Module-Lattice-based Key Encapsulation Mechanism) is the standardized
+    version of CRYSTALS-Kyber, providing quantum-resistant key encapsulation.
     """
-    hkdf = HKDF(
-        algorithm=hashes.SHA256(),
-        length=32,  # 256 bits for AES-256
-        salt=flow_id.encode('utf-8'),
-        info=b"QuMail-Level3-PQC-Kyber-SessionKey-v1.0",
-        backend=default_backend()
-    )
-    return hkdf.derive(shared_secret)
-
-
-class KyberKEM:
-    """Kyber1024 Key Encapsulation Mechanism"""
     
     @staticmethod
     def generate_keypair() -> Tuple[bytes, bytes]:
-        """Generate Kyber1024 keypair"""
-        if PQC_AVAILABLE:
-            kem = oqs.KeyEncapsulation(KYBER_ALGORITHM)
-            public_key = kem.generate_keypair()
-            private_key = kem.export_secret_key()
-            return private_key, public_key
+        """
+        Generate ML-KEM-1024 keypair
+        
+        Returns:
+            Tuple of (secret_key, public_key) as bytes
+        """
+        if PQC_AVAILABLE and ml_kem:
+            public_key, secret_key = ml_kem.generate_keypair()
+            logger.debug("Generated ML-KEM-1024 keypair")
+            return secret_key, public_key
         else:
-            # Placeholder implementation
-            private_key = secrets.token_bytes(2400)
-            public_key = secrets.token_bytes(1568)
-            logger.warning("Using PLACEHOLDER Kyber1024 - replace with real implementation")
-            return private_key, public_key
+            # Secure placeholder for testing without pqcrypto
+            secret_key = secrets.token_bytes(3168)  # ML-KEM-1024 secret key size
+            public_key = secrets.token_bytes(1568)   # ML-KEM-1024 public key size
+            logger.warning("⚠️ Using PLACEHOLDER ML-KEM-1024 - install pqcrypto for real PQC")
+            return secret_key, public_key
     
     @staticmethod
     def encapsulate(public_key: bytes) -> Tuple[bytes, bytes]:
-        """Encapsulate shared secret with public key"""
-        if PQC_AVAILABLE:
-            kem = oqs.KeyEncapsulation(KYBER_ALGORITHM)
-            ciphertext, shared_secret = kem.encap_secret(public_key)
+        """
+        Encapsulate a shared secret using the public key
+        
+        Args:
+            public_key: The recipient's public key
+            
+        Returns:
+            Tuple of (ciphertext, shared_secret)
+        """
+        if PQC_AVAILABLE and ml_kem:
+            ciphertext, shared_secret = ml_kem.encrypt(public_key)
+            logger.debug("ML-KEM-1024 encapsulation successful")
             return ciphertext, shared_secret
         else:
-            # Placeholder implementation
-            # INSECURE: Embedding shared secret in ciphertext for functional testing without liboqs
+            # Placeholder: embed shared secret in ciphertext for functional testing
             shared_secret = secrets.token_bytes(32)
-            # Pad to simulate Kyber ciphertext size (1568 bytes)
-            # We put shared secret at the start
             ciphertext = shared_secret + secrets.token_bytes(1568 - 32)
             return ciphertext, shared_secret
     
     @staticmethod
-    def decapsulate(private_key: bytes, ciphertext: bytes) -> bytes:
-        """Decapsulate shared secret with private key"""
-        if PQC_AVAILABLE:
-            kem = oqs.KeyEncapsulation(KYBER_ALGORITHM, secret_key=private_key)
-            shared_secret = kem.decap_secret(ciphertext)
+    def decapsulate(secret_key: bytes, ciphertext: bytes) -> bytes:
+        """
+        Decapsulate to recover the shared secret
+        
+        Args:
+            secret_key: The recipient's secret key
+            ciphertext: The encapsulated ciphertext
+            
+        Returns:
+            The shared secret
+        """
+        if PQC_AVAILABLE and ml_kem:
+            shared_secret = ml_kem.decrypt(secret_key, ciphertext)
+            logger.debug("ML-KEM-1024 decapsulation successful")
             return shared_secret
         else:
-            # Placeholder - extract shared secret from ciphertext
-            # INSECURE: For testing only
-            shared_secret = ciphertext[:32]
-            return shared_secret
+            # Placeholder: extract shared secret from ciphertext
+            return ciphertext[:32]
 
 
-class DilithiumSignature:
-    """Dilithium5 Digital Signature"""
+class MLDSA:
+    """
+    ML-DSA-87 Digital Signature Algorithm (NIST Standardized Dilithium)
+    
+    ML-DSA (Module-Lattice-based Digital Signature Algorithm) is the standardized
+    version of CRYSTALS-Dilithium, providing quantum-resistant digital signatures.
+    """
     
     @staticmethod
     def generate_keypair() -> Tuple[bytes, bytes]:
-        """Generate Dilithium5 keypair"""
-        if PQC_AVAILABLE:
-            sig = oqs.Signature(DILITHIUM_ALGORITHM)
-            public_key = sig.generate_keypair()
-            private_key = sig.export_secret_key()
-            return private_key, public_key
+        """
+        Generate ML-DSA-87 keypair
+        
+        Returns:
+            Tuple of (secret_key, public_key) as bytes
+        """
+        if PQC_AVAILABLE and ml_dsa:
+            public_key, secret_key = ml_dsa.generate_keypair()
+            logger.debug("Generated ML-DSA-87 keypair")
+            return secret_key, public_key
         else:
-            # Placeholder implementation
-            private_key = secrets.token_bytes(4864)
-            public_key = secrets.token_bytes(2592)
-            logger.warning("Using PLACEHOLDER Dilithium5 - replace with real implementation")
-            return private_key, public_key
+            # Secure placeholder
+            secret_key = secrets.token_bytes(4864)  # ML-DSA-87 secret key size
+            public_key = secrets.token_bytes(2592)   # ML-DSA-87 public key size
+            logger.warning("⚠️ Using PLACEHOLDER ML-DSA-87 - install pqcrypto for real PQC")
+            return secret_key, public_key
     
     @staticmethod
-    def sign(private_key: bytes, message: bytes) -> bytes:
-        """Sign message with Dilithium5"""
-        if PQC_AVAILABLE:
-            sig = oqs.Signature(DILITHIUM_ALGORITHM, secret_key=private_key)
-            signature = sig.sign(message)
+    def sign(secret_key: bytes, message: bytes) -> bytes:
+        """
+        Sign a message using the secret key
+        
+        Args:
+            secret_key: The signer's secret key
+            message: The message to sign
+            
+        Returns:
+            The digital signature
+        """
+        if PQC_AVAILABLE and ml_dsa:
+            signature = ml_dsa.sign(secret_key, message)
+            logger.debug("ML-DSA-87 signature generated")
             return signature
         else:
-            # Placeholder signature generation
-            signature = secrets.token_bytes(4595)
-            return signature
+            # Placeholder signature
+            return secrets.token_bytes(4627)  # ML-DSA-87 signature size
     
     @staticmethod
     def verify(public_key: bytes, message: bytes, signature: bytes) -> bool:
-        """Verify Dilithium5 signature"""
-        if PQC_AVAILABLE:
-            sig = oqs.Signature(DILITHIUM_ALGORITHM)
-            return sig.verify(message, signature, public_key)
+        """
+        Verify a digital signature
+        
+        Args:
+            public_key: The signer's public key
+            message: The original message
+            signature: The signature to verify
+            
+        Returns:
+            True if signature is valid, False otherwise
+        """
+        if PQC_AVAILABLE and ml_dsa:
+            try:
+                ml_dsa.verify(public_key, message, signature)
+                logger.debug("ML-DSA-87 signature verified successfully")
+                return True
+            except Exception as e:
+                logger.warning(f"ML-DSA-87 signature verification failed: {e}")
+                return False
         else:
-            # In placeholder mode, always return True for testing
+            # Placeholder: always return True in test mode
             return True
+
+
+# Legacy class aliases for backward compatibility
+KyberKEM = MLKEM
+DilithiumSignature = MLDSA
 
 
 async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
     """
-    Level 3: Post-Quantum Cryptography encryption
+    Level 3: Post-Quantum Cryptography encryption using PQCrypto
     
     Security Features:
-    - Kyber1024 for quantum-resistant key encapsulation
-    - Dilithium5 for quantum-resistant digital signatures
-    - AES-256-GCM for symmetric encryption with authentication
-    - HKDF key derivation from quantum-resistant shared secret
-    - Optional quantum key enhancement
+    - ML-KEM-1024 (Kyber) for quantum-resistant key encapsulation
+    - ML-DSA-87 (Dilithium) for quantum-resistant digital signatures
+    - AES-256-GCM for authenticated symmetric encryption
+    - HKDF-SHA256 for key derivation
+    - Optional quantum key enhancement from KME servers
+    
+    Args:
+        content: The plaintext message to encrypt
+        user_email: The sender's email address
+        
+    Returns:
+        Dictionary containing encrypted content and metadata
     """
     try:
         plaintext = content.encode('utf-8')
         flow_id = secrets.token_hex(16)
         
-        logger.info(f"Starting Level 3 PQC encryption for flow {flow_id}")
+        logger.info(f"🔐 Starting Level 3 PQC encryption (flow: {flow_id}, size: {len(plaintext)} bytes)")
         
-        # Step 1: Generate Kyber1024 keypair for key encapsulation
-        kyber_private_key, kyber_public_key = KyberKEM.generate_keypair()
+        if PQC_AVAILABLE:
+            logger.info("   Using PQCrypto: ML-KEM-1024 + ML-DSA-87")
+        else:
+            logger.warning("   Using placeholder PQC (pqcrypto not installed)")
         
-        # Step 1b: Generate Dilithium5 keypair for digital signature
-        dilithium_private_key, dilithium_public_key = DilithiumSignature.generate_keypair()
+        # Step 1: Generate ML-KEM-1024 keypair for key encapsulation
+        kem_secret_key, kem_public_key = MLKEM.generate_keypair()
+        logger.info(f"   ✓ Generated ML-KEM-1024 keypair")
         
-        # Step 2: Request quantum keys for enhancement (optional)
-        quantum_enhancement = None
+        # Step 2: Generate ML-DSA-87 keypair for digital signature
+        dsa_secret_key, dsa_public_key = MLDSA.generate_keypair()
+        logger.info(f"   ✓ Generated ML-DSA-87 keypair")
+        
+        # Step 3: Request quantum keys for enhancement (optional)
+        quantum_enhancement = {"enabled": False}
         try:
-            # Get optimized KM clients
             km1_client, km2_client = get_optimized_km_clients()
             
-            # Request quantum keys for enhancement (slave_sae_id is required first parameter)
             km1_keys = await km1_client.request_enc_keys(
-                slave_sae_id="c565d5aa-8670-4446-8471-b0e53e315d2a",  # KME2's SAE ID
+                slave_sae_id=KM2_SLAVE_SAE_ID,
                 number=1, 
                 size=128
             )
             km2_keys = await km2_client.request_enc_keys(
-                slave_sae_id="25840139-0dd4-49ae-ba1e-b86731601803",  # KME1's SAE ID
+                slave_sae_id=KM1_MASTER_SAE_ID,
                 number=1, 
                 size=128
             )
@@ -221,25 +284,21 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
                     },
                     "enhancement_material": km1_key_data + km2_key_data
                 }
-                logger.info(f"Quantum enhancement enabled for flow {flow_id}")
-            else:
-                logger.warning("Failed to retrieve quantum keys for enhancement")
+                logger.info(f"   ✓ Quantum enhancement enabled")
         except Exception as e:
-            logger.warning(f"Quantum enhancement failed: {e}, proceeding without")
+            logger.warning(f"   ⚠️ Quantum enhancement unavailable: {e}")
         
-        if not quantum_enhancement:
-            quantum_enhancement = {"enabled": False}
+        # Step 4: Encapsulate shared secret with ML-KEM-1024
+        kem_ciphertext, kem_shared_secret = MLKEM.encapsulate(kem_public_key)
+        logger.info(f"   ✓ ML-KEM-1024 encapsulation complete")
         
-        # Step 4: Encapsulate shared secret with Kyber1024
-        kyber_ciphertext, kyber_shared_secret = KyberKEM.encapsulate(kyber_public_key)
-        
-        # Step 5: Derive AES key with quantum enhancement
+        # Step 5: Derive AES-256 key using HKDF
         if quantum_enhancement["enabled"]:
-            ikm = kyber_shared_secret + quantum_enhancement["enhancement_material"]
-            info = f"QuMail-PQC-Enhanced-{flow_id}".encode('utf-8')
+            ikm = kem_shared_secret + quantum_enhancement["enhancement_material"]
+            info = f"QuMail-PQC-MLKEM-Enhanced-{flow_id}".encode('utf-8')
         else:
-            ikm = kyber_shared_secret
-            info = f"QuMail-PQC-{flow_id}".encode('utf-8')
+            ikm = kem_shared_secret
+            info = f"QuMail-PQC-MLKEM-{flow_id}".encode('utf-8')
         
         salt = secrets.token_bytes(32)
         hkdf = HKDF(
@@ -250,6 +309,7 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
             backend=default_backend()
         )
         aes_key = hkdf.derive(ikm)
+        logger.info(f"   ✓ Derived AES-256 session key via HKDF")
         
         # Step 6: Encrypt with AES-256-GCM
         nonce = secrets.token_bytes(12)
@@ -258,141 +318,158 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
         
         ciphertext = encryptor.update(plaintext) + encryptor.finalize()
         auth_tag = encryptor.tag
+        logger.info(f"   ✓ AES-256-GCM encryption complete")
         
-        # Step 7: Sign ciphertext with Dilithium5
-        signature = DilithiumSignature.sign(dilithium_private_key, ciphertext)
-        signature_b64 = base64.b64encode(signature).decode()
-        logger.info(f"Generated Dilithium5 Signature for flow {flow_id}")
+        # Step 7: Sign ciphertext with ML-DSA-87
+        signature = MLDSA.sign(dsa_secret_key, ciphertext)
+        logger.info(f"   ✓ ML-DSA-87 signature generated")
         
-        # Step 8: Clear sensitive data
+        # Step 8: Securely clear sensitive key material
         ikm = b'\x00' * len(ikm)
         aes_key = b'\x00' * len(aes_key)
-        kyber_shared_secret = b'\x00' * len(kyber_shared_secret)
-        if quantum_enhancement["enabled"]:
+        kem_shared_secret = b'\x00' * len(kem_shared_secret)
+        if quantum_enhancement["enabled"] and "enhancement_material" in quantum_enhancement:
             quantum_enhancement["enhancement_material"] = b'\x00' * len(quantum_enhancement["enhancement_material"])
         
-        logger.info(f"Level 3 PQC encryption completed for flow {flow_id}")
+        logger.info(f"✅ Level 3 PQC encryption completed (flow: {flow_id})")
         
         return {
             "encrypted_content": base64.b64encode(ciphertext).decode(),
-            "algorithm": "Kyber1024+Dilithium5+AES-256-GCM",
-            "signature": signature_b64,
+            "algorithm": "ML-KEM-1024+ML-DSA-87+AES-256-GCM",
+            "signature": base64.b64encode(signature).decode(),
             "auth_tag": base64.b64encode(auth_tag).decode(),
             "metadata": {
                 "flow_id": flow_id,
                 "salt": base64.b64encode(salt).decode(),
                 "nonce": base64.b64encode(nonce).decode(),
                 "auth_tag": base64.b64encode(auth_tag).decode(),
-                "signature": signature_b64,
-                "kyber_ciphertext": base64.b64encode(kyber_ciphertext).decode(),
-                "kyber_private_key": base64.b64encode(kyber_private_key).decode(),
-                "kyber_public_key": base64.b64encode(kyber_public_key).decode(),
-                "dilithium_public_key": base64.b64encode(dilithium_public_key).decode(),
+                "signature": base64.b64encode(signature).decode(),
+                "kem_ciphertext": base64.b64encode(kem_ciphertext).decode(),
+                "kem_secret_key": base64.b64encode(kem_secret_key).decode(),
+                "kem_public_key": base64.b64encode(kem_public_key).decode(),
+                "dsa_public_key": base64.b64encode(dsa_public_key).decode(),
+                # Legacy compatibility aliases
+                "kyber_ciphertext": base64.b64encode(kem_ciphertext).decode(),
+                "kyber_private_key": base64.b64encode(kem_secret_key).decode(),
+                "kyber_public_key": base64.b64encode(kem_public_key).decode(),
+                "dilithium_public_key": base64.b64encode(dsa_public_key).decode(),
                 "quantum_enhancement": {
                     "enabled": quantum_enhancement["enabled"],
                     "key_ids": quantum_enhancement.get("key_ids", {})
                 },
                 "security_level": 3,
-                "pqc_algorithms": ["Kyber1024", "Dilithium5"],
+                "pqc_algorithms": ["ML-KEM-1024", "ML-DSA-87"],
+                "pqc_library": "pqcrypto" if PQC_AVAILABLE else "placeholder",
                 "cipher": "AES-256-GCM"
             }
         }
         
     except Exception as e:
-        logger.error(f"Level 3 PQC encryption failed: {e}")
+        logger.error(f"❌ Level 3 PQC encryption failed: {e}")
         raise Level3SecurityError(f"PQC encryption failed: {e}")
 
 
 async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Level 3: Post-Quantum Cryptography decryption
+    Level 3: Post-Quantum Cryptography decryption using PQCrypto
     
     Security Features:
-    - Dilithium5 signature verification
-    - Kyber1024 decapsulation
+    - ML-DSA-87 (Dilithium) signature verification
+    - ML-KEM-1024 (Kyber) decapsulation
     - Quantum key retrieval for enhancement
-    - Authenticated decryption
+    - AES-256-GCM authenticated decryption
+    
+    Args:
+        encrypted_content: Base64-encoded ciphertext
+        user_email: The recipient's email address
+        metadata: Encryption metadata including keys and parameters
+        
+    Returns:
+        Dictionary containing decrypted content and verification status
     """
     try:
-        # Step 1: Extract metadata
         flow_id = metadata["flow_id"]
+        logger.info(f"🔓 Starting Level 3 PQC decryption (flow: {flow_id})")
+        
+        # Step 1: Extract metadata (with legacy compatibility)
         salt = base64.b64decode(metadata["salt"])
         nonce = base64.b64decode(metadata["nonce"])
         auth_tag = base64.b64decode(metadata["auth_tag"])
-        kyber_ciphertext = base64.b64decode(metadata["kyber_ciphertext"])
-        kyber_private_key = base64.b64decode(metadata["kyber_private_key"])
-        kyber_public_key = base64.b64decode(metadata["kyber_public_key"])
-        dilithium_public_key = base64.b64decode(metadata.get("dilithium_public_key", ""))
+        
+        # Support both new (kem_*) and legacy (kyber_*) key names
+        kem_ciphertext = base64.b64decode(
+            metadata.get("kem_ciphertext") or metadata.get("kyber_ciphertext")
+        )
+        kem_secret_key = base64.b64decode(
+            metadata.get("kem_secret_key") or metadata.get("kyber_private_key")
+        )
+        dsa_public_key_b64 = metadata.get("dsa_public_key") or metadata.get("dilithium_public_key", "")
+        dsa_public_key = base64.b64decode(dsa_public_key_b64) if dsa_public_key_b64 else None
+        
         signature_b64 = metadata.get("signature", "")
-        quantum_enhancement = metadata["quantum_enhancement"]
+        quantum_enhancement = metadata.get("quantum_enhancement", {"enabled": False})
         
         ciphertext = base64.b64decode(encrypted_content)
         
-        logger.info(f"Starting Level 3 PQC decryption for flow {flow_id}")
-        
-        # Step 2: Verify Dilithium5 Signature
-        if dilithium_public_key and signature_b64:
+        # Step 2: Verify ML-DSA-87 signature
+        if dsa_public_key and signature_b64:
             signature = base64.b64decode(signature_b64)
-            if DilithiumSignature.verify(dilithium_public_key, ciphertext, signature):
-                logger.info(f"✓ DILITHIUM SIGNATURE VERIFIED for flow {flow_id}")
+            if MLDSA.verify(dsa_public_key, ciphertext, signature):
+                logger.info(f"   ✓ ML-DSA-87 signature VERIFIED")
             else:
-                logger.critical(f"!!! DILITHIUM SIGNATURE VERIFICATION FAILED for flow {flow_id} !!!")
-                raise Level3SecurityError("Dilithium Signature Verification Failed - data integrity compromised")
+                logger.critical(f"   ❌ ML-DSA-87 SIGNATURE VERIFICATION FAILED!")
+                raise Level3SecurityError("Digital signature verification failed - data integrity compromised")
         else:
-            logger.warning(f"Missing Dilithium public key or signature for flow {flow_id}")
+            logger.warning(f"   ⚠️ No signature to verify")
         
-        # Step 3: Decapsulate Kyber1024 shared secret
-        kyber_shared_secret = KyberKEM.decapsulate(kyber_private_key, kyber_ciphertext)
+        # Step 3: Decapsulate ML-KEM-1024 shared secret
+        kem_shared_secret = MLKEM.decapsulate(kem_secret_key, kem_ciphertext)
+        logger.info(f"   ✓ ML-KEM-1024 decapsulation complete")
         
         # Step 4: Retrieve quantum enhancement if enabled
         enhancement_material = b""
-        if quantum_enhancement["enabled"]:
-            key_ids = quantum_enhancement["key_ids"]
-            logger.info(
-                "SHARED POOL: Retrieving quantum enhancement keys %s via KM2 client",
-                key_ids
-            )
+        quantum_enhanced_actual = False
+        
+        if quantum_enhancement.get("enabled"):
+            key_ids = quantum_enhancement.get("key_ids", {})
+            logger.info(f"   Retrieving quantum enhancement keys: {key_ids}")
+            
             try:
                 _, km2_client = get_optimized_km_clients()
                 km_keys = await km2_client.request_dec_keys(
                     master_sae_id=KM1_MASTER_SAE_ID,
                     key_ids=[key_ids["km1"], key_ids["km2"]]
                 )
-            except AuthenticationError as auth_error:
-                logger.error("SHARED POOL: Authentication failed retrieving enhancement keys: %s", auth_error)
-                raise Level3SecurityError("KME authentication failed while retrieving quantum enhancement keys")
-            except KMConnectionError as conn_error:
-                logger.error("SHARED POOL: Connection error retrieving enhancement keys: %s", conn_error)
-                raise Level3SecurityError("Unable to reach KM shared pool for enhancement keys")
-            except Exception as exc:
-                logger.error("SHARED POOL: Unexpected error retrieving enhancement keys: %s", exc)
-                raise Level3SecurityError(f"Quantum enhancement retrieval failed: {exc}")
-
-            if not km_keys or len(km_keys) < 2:
-                logger.error(
-                    "SHARED POOL: Expected 2 enhancement keys but received %d", 
-                    0 if not km_keys else len(km_keys)
-                )
-                raise Level3SecurityError("Quantum enhancement keys unavailable in shared pool")
-
-            key_dict = {k['key_ID']: base64.b64decode(k['key']) for k in km_keys}
-            km1_key_data = key_dict.get(key_ids["km1"])
-            km2_key_data = key_dict.get(key_ids["km2"])
-
-            if not km1_key_data or not km2_key_data:
-                logger.error("SHARED POOL: Required enhancement keys missing from response")
-                raise Level3SecurityError("Quantum enhancement keys missing from shared pool response")
-
-            enhancement_material = km1_key_data + km2_key_data
-            logger.info("Quantum enhancement material retrieved for flow %s", flow_id)
+                
+                if km_keys and len(km_keys) >= 2:
+                    key_dict = {k['key_ID']: base64.b64decode(k['key']) for k in km_keys}
+                    km1_key_data = key_dict.get(key_ids["km1"])
+                    km2_key_data = key_dict.get(key_ids["km2"])
+                    
+                    if km1_key_data and km2_key_data:
+                        enhancement_material = km1_key_data + km2_key_data
+                        quantum_enhanced_actual = True
+                        logger.info(f"   ✓ Quantum enhancement keys retrieved")
+                    else:
+                        logger.warning(f"   ⚠️ Quantum keys missing - continuing WITHOUT enhancement")
+                else:
+                    logger.warning(f"   ⚠️ Insufficient quantum keys - continuing WITHOUT enhancement")
+                    
+            except (AuthenticationError, KMConnectionError) as e:
+                logger.warning(f"   ⚠️ KME unavailable during decryption: {e} - continuing WITHOUT enhancement")
+            except Exception as e:
+                logger.warning(f"   ⚠️ Quantum key retrieval failed: {e} - continuing WITHOUT enhancement")
         
-        # Step 5: Derive AES key (same process as encryption)
-        if quantum_enhancement["enabled"]:
-            ikm = kyber_shared_secret + enhancement_material
-            info = f"QuMail-PQC-Enhanced-{flow_id}".encode('utf-8')
+        # Step 5: Derive AES-256 key (same process as encryption)
+        # Use quantum_enhanced_actual instead of metadata flag to match actual encryption state
+        if quantum_enhanced_actual:
+            ikm = kem_shared_secret + enhancement_material
+            info = f"QuMail-PQC-MLKEM-Enhanced-{flow_id}".encode('utf-8')
+            logger.info(f"   Using quantum-enhanced key derivation")
         else:
-            ikm = kyber_shared_secret
-            info = f"QuMail-PQC-{flow_id}".encode('utf-8')
+            ikm = kem_shared_secret
+            info = f"QuMail-PQC-MLKEM-{flow_id}".encode('utf-8')
+            logger.info(f"   Using standard key derivation (no quantum enhancement)")
         
         hkdf = HKDF(
             algorithm=hashes.SHA256(),
@@ -402,6 +479,7 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
             backend=default_backend()
         )
         aes_key = hkdf.derive(ikm)
+        logger.info(f"   ✓ Derived AES-256 session key")
         
         # Step 6: Decrypt with AES-256-GCM
         cipher = Cipher(algorithms.AES(aes_key), modes.GCM(nonce, auth_tag), backend=default_backend())
@@ -410,23 +488,24 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
         try:
             plaintext_bytes = decryptor.update(ciphertext) + decryptor.finalize()
             plaintext = plaintext_bytes.decode('utf-8')
-            logger.info(f"✓ INTEGRITY GATE PASSED: PQC GCM tag verified for flow {flow_id}")
+            logger.info(f"   ✓ AES-256-GCM decryption & authentication passed")
         except Exception as e:
-            logger.critical(f"!!! INTEGRITY GATE FAILED: PQC GCM decryption failed for flow {flow_id}: {e}")
-            # WIPE KEYS
+            logger.critical(f"   ❌ AES-GCM INTEGRITY CHECK FAILED: {e}")
+            # Securely wipe keys before raising
             ikm = b'\x00' * len(ikm)
             aes_key = b'\x00' * len(aes_key)
-            kyber_shared_secret = b'\x00' * len(kyber_shared_secret)
-            enhancement_material = b'\x00' * len(enhancement_material)
-            raise Level3SecurityError("Integrity Gate Failed: PQC GCM decryption failed - data corrupted or tampered")
+            kem_shared_secret = b'\x00' * len(kem_shared_secret)
+            enhancement_material = b'\x00' * len(enhancement_material) if enhancement_material else b''
+            raise Level3SecurityError("Integrity verification failed - data corrupted or tampered")
         
-        # Step 7: Clear sensitive data
+        # Step 7: Securely clear sensitive key material
         ikm = b'\x00' * len(ikm)
         aes_key = b'\x00' * len(aes_key)
-        kyber_shared_secret = b'\x00' * len(kyber_shared_secret)
-        enhancement_material = b'\x00' * len(enhancement_material)
+        kem_shared_secret = b'\x00' * len(kem_shared_secret)
+        if enhancement_material:
+            enhancement_material = b'\x00' * len(enhancement_material)
         
-        logger.info(f"Level 3 PQC decryption completed for flow {flow_id}")
+        logger.info(f"✅ Level 3 PQC decryption completed (flow: {flow_id})")
         
         return {
             "decrypted_content": plaintext,
@@ -434,29 +513,25 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
             "metadata": {
                 "flow_id": flow_id,
                 "security_level": 3,
-                "algorithm": "Kyber1024+Dilithium5+AES-256-GCM",
-                "quantum_enhanced": quantum_enhancement["enabled"],
-                "pqc_algorithms": ["Kyber1024", "Dilithium5"]
+                "algorithm": "ML-KEM-1024+ML-DSA-87+AES-256-GCM",
+                "quantum_enhanced": quantum_enhanced_actual,
+                "pqc_algorithms": ["ML-KEM-1024", "ML-DSA-87"],
+                "pqc_library": "pqcrypto" if PQC_AVAILABLE else "placeholder"
             }
         }
         
     except Level3SecurityError:
         raise
     except Exception as e:
-        logger.error(f"Level 3 PQC decryption failed: {e}")
+        logger.error(f"❌ Level 3 PQC decryption failed: {e}")
         raise Level3SecurityError(f"PQC decryption failed: {e}")
 
 
 def generate_kyber_keypair() -> Tuple[bytes, bytes]:
-    """Generate Kyber1024 key pair for key encapsulation"""
-    return KyberKEM.generate_keypair()
+    """Generate ML-KEM-1024 (Kyber) key pair - legacy compatibility"""
+    return MLKEM.generate_keypair()
 
 
 def generate_dilithium_keypair() -> Tuple[bytes, bytes]:
-    """Generate Dilithium5 key pair for digital signatures"""
-    return DilithiumSignature.generate_keypair()
-
-
-def is_pqc_available() -> bool:
-    """Check if post-quantum cryptography is available"""
-    return PQC_AVAILABLE
+    """Generate ML-DSA-87 (Dilithium) key pair - legacy compatibility"""
+    return MLDSA.generate_keypair()

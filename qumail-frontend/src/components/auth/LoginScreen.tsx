@@ -4,19 +4,30 @@ import { Button } from '../ui/Button'
 import { Card, CardContent } from '../ui/Card'
 import { authService } from '../../services/authService'
 import { toast } from 'react-hot-toast'
+import { useAuth } from '../../context/AuthContext'
 
 export const LoginScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const { isAuthenticated } = useAuth()
 
   // Clear any existing auth data on login screen
   useEffect(() => {
+    // If we already have a valid session, do NOT wipe tokens. This avoids
+    // clearing freshly issued tokens while AuthContext is still hydrating.
+    const hasActiveSession = !!(localStorage.getItem('authToken') || localStorage.getItem('refreshToken'))
+    if (isAuthenticated || hasActiveSession) {
+      console.log('LoginScreen: Active session detected, skipping auth cleanup')
+      return
+    }
+
     localStorage.removeItem('authToken')
+    localStorage.removeItem('refreshToken')
     localStorage.removeItem('user')
     localStorage.removeItem('userEmail')
-    console.log('LoginScreen: Cleared any existing auth data')
-  }, [])
+    console.log('LoginScreen: Cleared stale auth data')
+  }, [isAuthenticated])
 
   const handleGoogleLogin = async () => {
     setIsLoading(true)
@@ -192,19 +203,12 @@ export const LoginScreen: React.FC = () => {
               <motion.div
                 variants={floatingVariants}
                 animate="animate"
-                className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-2xl mb-6 mx-auto"
+                className="mb-6 mx-auto"
               >
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
+                <img src="/qumail-logo.svg" alt="QuMail" className="h-35 w-auto mx-auto brightness-0 invert" />
               </motion.div>
               
-              <h1 className="text-5xl md:text-6xl font-bold text-white mb-4">
-                <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  QuMail
-                </span>
-              </h1>
-              
+            
               <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
                 The world's first quantum-secured email platform with military-grade encryption
                 and unbreakable quantum key distribution technology.

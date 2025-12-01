@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0f172a; /* Dark blue/slate background */
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      overflow: hidden;
+    }
+
+    .atom-container {
+      position: relative;
+      width: 200px;
+      height: 200px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* Nucleus */
+    .nucleus {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      background: #3b82f6;
+      border-radius: 50%;
+      box-shadow: 0 0 15px #3b82f6, 0 0 30px #60a5fa;
+      z-index: 10;
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    /* Orbits */
+    .orbit {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      border-radius: 50%;
+      transform-style: preserve-3d;
+    }
+
+    .orbit:nth-child(1) {
+      transform: rotateZ(60deg) rotateY(65deg);
+    }
+
+    .orbit:nth-child(2) {
+      transform: rotateZ(120deg) rotateY(65deg);
+    }
+
+    .orbit:nth-child(3) {
+      transform: rotateZ(180deg) rotateY(65deg);
+    }
+
+    /* Electrons */
+    .electron {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 8px;
+      height: 8px;
+      background: #60a5fa;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #60a5fa;
+      transform-origin: -96px 0; /* Radius of orbit (approx half of 200px minus adjustment) */
+      /* Actually, let's use a different animation technique for smoother orbit */
+    }
+    
+    /* Better Orbit Animation Technique */
+    .orbit-path {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 200px;
+      height: 200px;
+      border-radius: 50%;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      transform-style: preserve-3d;
+    }
+
+    .orbit-1 { transform: rotateZ(60deg) rotateX(65deg); }
+    .orbit-2 { transform: rotateZ(120deg) rotateX(65deg); }
+    .orbit-3 { transform: rotateZ(180deg) rotateX(65deg); }
+
+    .electron-wrapper {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      animation: orbit-spin 2s linear infinite;
+    }
+
+    .orbit-2 .electron-wrapper { animation-delay: -0.66s; }
+    .orbit-3 .electron-wrapper { animation-delay: -1.33s; }
+
+    .electron-dot {
+      position: absolute;
+      top: -4px; /* Half of height */
+      left: 50%;
+      margin-left: -4px; /* Half of width */
+      width: 8px;
+      height: 8px;
+      background: #00e1ff;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #00e1ff, 0 0 15px #00e1ff;
+    }
+
+    @keyframes orbit-spin {
+      0% { transform: rotateZ(0deg); }
+      100% { transform: rotateZ(360deg); }
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(1); opacity: 0.8; }
+    }
+
+    .title {
+      margin-top: 40px;
+      color: white;
+      font-size: 24px;
+      font-weight: 300;
+      letter-spacing: 4px;
+      opacity: 0;
+      animation: fadeIn 1s ease-out forwards;
+      animation-delay: 0.5s;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      margin-top: 8px;
+      color: #94a3b8;
+      font-size: 12px;
+      letter-spacing: 2px;
+      opacity: 0;
+      animation: fadeIn 1s ease-out forwards;
+      animation-delay: 1s;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .loading-bar {
+        width: 200px;
+        height: 2px;
+        background: rgba(255,255,255,0.1);
+        margin-top: 20px;
+        border-radius: 2px;
+        overflow: hidden;
+        opacity: 0;
+        animation: fadeIn 1s ease-out forwards;
+        animation-delay: 1.2s;
+    }
+    
+    .loading-progress {
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+        transform: translateX(-100%);
+        animation: loading 2s infinite;
+    }
+    
+    @keyframes loading {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+
+  </style>
+</head>
+<body>
+  <div class="atom-container">
+    <div class="nucleus"></div>
+    
+    <div class="orbit-path orbit-1">
+      <div class="electron-wrapper">
+        <div class="electron-dot"></div>
+      </div>
+    </div>
+    
+    <div class="orbit-path orbit-2">
+      <div class="electron-wrapper">
+        <div class="electron-dot"></div>
+      </div>
+    </div>
+    
+    <div class="orbit-path orbit-3">
+      <div class="electron-wrapper">
+        <div class="electron-dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="title">QuMail</div>
+  <div class="subtitle">QUANTUM SECURE MESSAGING</div>
+  
+  <div class="loading-bar">
+      <div class="loading-progress"></div>
+  </div>
+</body>
+</html>

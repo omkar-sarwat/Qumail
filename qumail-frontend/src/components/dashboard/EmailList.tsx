@@ -1,403 +1,250 @@
-import React from 'react'
-import { EmailListSkeleton } from '../ui/LoadingSpinner'
+import React, { useMemo } from 'react';
+import { Lock, Star, Zap } from 'lucide-react';
+import { getAvatarColor } from '../../utils/avatarColors';
+
+const coerceLevel = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const direct = Number(trimmed);
+    if (!Number.isNaN(direct)) {
+      return direct;
+    }
+    const match = trimmed.match(/([0-4])/);
+    if (match) {
+      return Number(match[1]);
+    }
+  }
+  return null;
+};
+
+const deriveSecurityLevel = (email: Email): number => {
+  const candidates = [
+    email.security_level,
+    email.securityLevel,
+    email.security_info?.level,
+    (email as any)?.securityDetails?.level,
+    (email as any)?.securityInfo?.level,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = coerceLevel(candidate as any);
+    if (parsed !== null && parsed >= 0 && parsed <= 4) {
+      return parsed;
+    }
+  }
+
+  const textSources = [email.subject, email.snippet]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase())
+    .join(' ');
+
+  const hasQuantumContext = textSources.includes('qumail') || textSources.includes('quantum');
+
+  if (hasQuantumContext) {
+    const levelMatch = textSources.match(/(?:level|l)\s*([1-4])/);
+    if (levelMatch) {
+      return Number(levelMatch[1]);
+    }
+  }
+
+  return 0;
+};
 
 interface Email {
-  id: string
-  from?: string
-  to?: string
-  subject?: string
-  body?: string
-  html_body?: string
-  plain_body?: string
-  bodyText?: string
-  bodyHtml?: string
-  snippet?: string
-  timestamp: string
-  read?: boolean
-  encrypted?: boolean
-  securityLevel?: 1 | 2 | 3 | 4
-  sender_name?: string
-  sender_email?: string
-  from_name?: string
-  from_email?: string
-  sender?: string
-  recipient?: string
-  messageId?: string
-  threadId?: string
-  cc?: string
-  bcc?: string
-  replyTo?: string
-  isRead?: boolean
-  isStarred?: boolean
-  source?: string
-  labels?: string[]
-  hasAttachments?: boolean
-  inlineImages?: boolean
-  attachments?: Array<{
-    id?: string
-    name?: string
-    filename?: string
-    size: number
-    type?: string
-    mimeType?: string
-    content?: string
-    url?: string
-  }>
+  id: string;
+  sender_name?: string;
+  senderName?: string;
+  senderAvatar?: string;
+  timestamp: string;
+  subject: string;
+  snippet: string;
+  isUnread?: boolean;
+  isStarred?: boolean;
+  tags?: string[];
+  encrypted?: boolean;
+  isEncrypted?: boolean;
+  security_level?: number;
+  securityLevel?: number;
+  security_info?: {
+    level?: number;
+  };
+  securityInfo?: {
+    level?: number;
+  };
 }
 
 interface EmailListProps {
-  emails: Email[]
-  selectedEmail: Email | null
-  onEmailSelect: (email: Email) => void
-  isLoading: boolean
-  activeFolder: string
+  emails: Email[];
+  selectedEmail: Email | null;
+  onEmailSelect: (email: Email) => void;
+  onToggleStar: (id: string) => void;
+  isLoading: boolean;
+  activeFolder: string;
 }
 
-const CSS_MEDIA_BLOCK = /@[a-z\-]+[^{}]*\{[\s\S]*?\}/gi
-const CSS_INLINE_BLOCK = /(?:^|\s)(?:[#.][\w-]+|[a-z0-9_-]+\s+[a-z0-9_.#-]+|body|html)[^{]*\{[^{}]*:[^{}]*\}/gi
+export const EmailList: React.FC<EmailListProps> = ({ emails, selectedEmail, onEmailSelect, onToggleStar, isLoading, activeFolder }) => {
+  const selectedId = selectedEmail?.id ?? null;
 
-const preferPreviewField = (email: Email) => {
-  if (email.snippet && email.snippet.trim().length > 0) return email.snippet
-  if (email.bodyText && email.bodyText.trim().length > 0) return email.bodyText
-  if (email.body && email.body.trim().length > 0) return email.body
-  if (email.plain_body && email.plain_body.trim().length > 0) return email.plain_body
-  if (email.bodyHtml && email.bodyHtml.trim().length > 0) return email.bodyHtml
-  if (email.html_body && email.html_body.trim().length > 0) return email.html_body
-  return ''
-}
+  const formatTimestamp = useMemo(() => (value: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
 
-const stripHtmlAndCss = (content: string) => {
-  let sanitized = content
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(CSS_MEDIA_BLOCK, ' ')
-    .replace(CSS_INLINE_BLOCK, ' ')
-    .replace(/<br\s*\/?>/gi, ' ')
-    .replace(/<\/p>/gi, ' ')
-    .replace(/<p[^>]*>/gi, ' ')
-    .replace(/<div[^>]*>/gi, ' ')
-    .replace(/<\/div>/gi, ' ')
-    .replace(/<li[^>]*>/gi, '• ')
-    .replace(/<\/li>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
+    const now = new Date();
+    const isSameDay = date.toDateString() === now.toDateString();
+    const isSameYear = date.getFullYear() === now.getFullYear();
 
-  sanitized = sanitized
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&hellip;/gi, '...')
+    const options: Intl.DateTimeFormatOptions = isSameDay
+      ? { hour: '2-digit', minute: '2-digit' }
+      : isSameYear
+        ? { month: 'short', day: 'numeric' }
+        : { month: 'short', day: 'numeric', year: 'numeric' };
 
-  return sanitized.replace(/\s+/g, ' ').trim()
-}
+    return date.toLocaleString(undefined, options);
+  }, []);
 
-export const EmailList: React.FC<EmailListProps> = ({
-  emails,
-  selectedEmail,
-  onEmailSelect,
-  isLoading,
-  activeFolder
-}) => {
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  const handleSelect = (id: string) => {
+    const email = emails.find((e) => e.id === id);
+    if (email) onEmailSelect(email);
+  };
 
-    if (days === 0) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    } else if (days === 1) {
-      return 'Yesterday'
-    } else if (days < 7) {
-      return date.toLocaleDateString([], { weekday: 'short' })
-    } else {
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-    }
-  }
-
-  const getSecurityIcon = (level?: 1 | 2 | 3 | 4) => {
-    // Default to level 4 (standard security) if undefined
-    if (level === undefined) return getSecurityIcon(4)
-    switch (level) {
-      case 1:
-        return (
-          <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-        )
-      case 2:
-        return (
-          <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        )
-      case 3:
-        return (
-          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-        )
-      case 4:
-        return (
-          <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        )
-    }
-  }
-
-  const getSecurityBadgeColor = (level?: 1 | 2 | 3 | 4) => {
-    // Default to level 4 (standard security) if undefined
-    if (level === undefined) return getSecurityBadgeColor(4)
-    switch (level) {
-      case 1:
-        return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-      case 2:
-        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-      case 3:
-        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-      case 4:
-        return 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300'
-    }
-  }
-
-  const isUnreadEmail = (email: Email) => {
-    const raw = email as any
-    // Email is unread only if explicitly marked as unread and not marked as read
-    const isExplicitlyRead = raw.read === true || raw.isRead === true || raw.is_read === true
-    const isExplicitlyUnread = raw.read === false || raw.isRead === false || raw.is_read === false || raw.read_status === 'UNREAD'
-    
-    // If explicitly marked as read, return false (not unread)
-    if (isExplicitlyRead) return false
-    
-    // If explicitly marked as unread, return true (is unread)
-    if (isExplicitlyUnread) return true
-    
-    // Default to unread for new emails (safest assumption)
-    return true
-  }
-
-  const truncateText = (text: string, maxLength: number) => {
-    if (text.length <= maxLength) return text
-    return text.substring(0, maxLength) + '...'
-  }
-
-  const getSenderInfo = (email: Email) => {
-    // Try different fields for sender information with Gmail API fields
-    const senderName = email.sender_name || email.from_name || 
-      (email.sender && email.sender.includes('<') ? 
-        email.sender.split('<')[0].trim().replace(/"/g, '') : 
-        email.sender?.split('@')[0]) ||
-      (email.from && email.from.includes('<') ? 
-        email.from.split('<')[0].trim().replace(/"/g, '') : 
-        email.from?.split('@')[0]) || 'Unknown Sender';
-    
-    const senderEmail = email.sender_email || email.from_email || 
-      (email.sender && email.sender.includes('<') ? 
-        email.sender.split('<')[1]?.replace('>', '').trim() : 
-        email.sender) ||
-      (email.from && email.from.includes('<') ? 
-        email.from.split('<')[1]?.replace('>', '').trim() : 
-        email.from) || '';
-    
-    return { senderName, senderEmail };
-  }
-
-  const getEmailContent = (email: Email) => {
-    // Prefer sanitized snippet/plain text before HTML
-    return preferPreviewField(email)
-  }
-
-  const getCleanPreviewText = (email: Email) => {
-    const raw = email as any
-    if (raw.body_encrypted || raw.requires_decryption || raw.encrypted || (raw.security_level && raw.security_level > 0)) {
-      return '🔒 This email is quantum-encrypted. Click to view and decrypt.'
-    }
-
-    const content = getEmailContent(email)
-    if (!content) return 'No content available'
-
-    const textOnly = stripHtmlAndCss(content)
-    const cleaned = textOnly.replace(/^(sent from|get outlook|sent via)/i, '').trim()
-
-    return cleaned || 'No content available'
-  }
+  // Memoize email items to prevent unnecessary re-renders
+  const emailItems = useMemo(() => emails.map((email) => {
+    const senderName = email.sender_name || email.senderName || 'Unknown Sender';
+    const securityLevel = deriveSecurityLevel(email);
+    const isEncrypted = email.isEncrypted ?? email.encrypted ?? securityLevel > 0;
+    return { ...email, senderName, securityLevel, isEncrypted };
+  }), [emails]);
 
   if (isLoading) {
     return (
-      <div className="h-full flex flex-col bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-gray-900 dark:text-white capitalize">
-              {activeFolder}
-            </h2>
-            <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+      <div className="h-full flex flex-col bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        {/* Header placeholder */}
+        <div className="h-14 px-5 border-b border-gray-200 bg-white flex items-center justify-between flex-shrink-0 sticky top-0 z-10">
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold text-gray-900 text-base capitalize">{activeFolder}</h2>
+            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs font-bold">{emails.length}</span>
           </div>
         </div>
-
-        {/* Professional Loading Skeleton */}
-        <div className="flex-1 overflow-hidden">
-          <EmailListSkeleton />
+        {/* Loading skeleton */}
+        <div className="flex-1 p-4 animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
+          <div className="h-4 bg-gray-200 rounded w-1/2" />
         </div>
       </div>
-    )
+    );
   }
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-[#161b22] rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-      {/* Clean Professional Header */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold text-sm text-gray-900 dark:text-white capitalize">
-              {activeFolder}
-            </h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {emails.length} {emails.length === 1 ? 'email' : 'emails'}
-            </p>
-          </div>
-          <button className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
+    <div className="flex flex-col h-full w-[28rem] bg-white flex-shrink-0 z-0 rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="h-14 px-5 border-b border-gray-200 bg-white flex items-center justify-between flex-shrink-0 sticky top-0 z-10">
+        <div className="flex items-center gap-2">
+          <h2 className="font-bold text-gray-900 text-base capitalize">{activeFolder}</h2>
+          <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs font-bold">{emails.length}</span>
         </div>
       </div>
 
-      {/* Clean Email List */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {emails.length === 0 ? (
-          <div className="h-full flex items-center justify-center p-8">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                </svg>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                No emails
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Your {activeFolder} is empty
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="p-1">
-            {emails.map((email) => (
-              <div
-                key={email.id}
-                onClick={() => onEmailSelect(email)}
-                className={`group relative px-3 py-3 cursor-pointer transition-colors border-l-2 rounded-r-lg mb-0.5 ${
-                  selectedEmail?.id === email.id 
-                    ? 'bg-blue-50 dark:bg-blue-900/20 border-l-blue-600' 
-                    : 'border-l-transparent hover:border-l-blue-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'
-                } ${
-                  isUnreadEmail(email) ? 'bg-white dark:bg-gray-800/50' : ''
+      {/* List Container */}
+      <div className="flex-1 overflow-y-auto bg-white">
+        {emailItems.map((email) => {
+          const isSelected = selectedId === email.id;
+          const { senderName, securityLevel, isEncrypted } = email;
+          return (
+            <div
+              key={email.id}
+              onClick={() => handleSelect(email.id)}
+              className={`relative py-4 px-4 border-b border-gray-100 cursor-pointer transition-colors duration-150 group flex gap-3 ${isSelected ? 'bg-indigo-50/60' : 'hover:bg-gray-50'
                 }`}
+            >
+              {/* Selection Accent Line */}
+              {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-600" />}
+
+              {/* Avatar */}
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0 mt-0.5 ${getAvatarColor(senderName)}`}
               >
-                <div className="flex items-start gap-3">
-                  {/* Clean Avatar */}
-                  <div className="flex-shrink-0 relative">
-                    <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                      <span className="text-white text-sm font-medium">
-                        {(() => {
-                          const { senderName } = getSenderInfo(email);
-                          return senderName.charAt(0).toUpperCase();
-                        })()}
+                {(senderName?.[0] ?? '?').toUpperCase()}
+              </div>
+
+              {/* Content Column */}
+              <div className="min-w-0 overflow-hidden flex-1">
+                {/* Row 1: Sender & Time */}
+                <div className="flex justify-between items-baseline mb-0.5">
+                  <span className={`text-[15px] truncate pr-2 ${email.isUnread ? 'font-bold text-gray-900' : 'font-bold text-gray-700'}`}>
+                    {senderName}
+                  </span>
+                  <span className={`text-xs whitespace-nowrap ${isSelected ? 'text-indigo-600 font-medium' : 'text-gray-400'}`}>
+                    {formatTimestamp(email.timestamp)}
+                  </span>
+                </div>
+
+                {/* Row 2: Subject */}
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  {isEncrypted && (
+                    <Lock size={12} className="text-indigo-500 flex-shrink-0" strokeWidth={2.5} />
+                  )}
+                  <h4 className={`text-[15px] truncate leading-tight ${email.isUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-800'}`}>
+                    {email.subject}
+                  </h4>
+                </div>
+
+                {/* Row 3: Snippet */}
+                <div className="flex justify-between items-start">
+                  <p className="text-[13px] text-gray-500 truncate leading-relaxed max-w-[90%]">{email.snippet}</p>
+                  {/* Star Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleStar(email.id);
+                    }}
+                    className={`ml-1 p-0.5 rounded transition-all hover:scale-110 ${email.isStarred
+                        ? 'text-yellow-400 opacity-100'
+                        : `text-gray-300 hover:text-yellow-400 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`
+                      }`}
+                  >
+                    <Star size={16} fill={email.isStarred ? 'currentColor' : 'none'} />
+                  </button>
+                </div>
+
+                {/* Row 4: Quantum Level Badge */}
+                {(() => {
+                  const level = securityLevel;
+                  if (level === 0) return null;
+
+                  const levelColors: Record<number, string> = {
+                    1: 'bg-purple-50 text-purple-700 border-purple-200',
+                    2: 'bg-blue-50 text-blue-700 border-blue-200',
+                    3: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                    4: 'bg-gray-100 text-gray-700 border-gray-200',
+                  };
+                  const levelNames: Record<number, string> = {
+                    1: 'Level 1',
+                    2: 'Level 2',
+                    3: 'Level 3',
+                    4: 'Standard',
+                  };
+
+                  return (
+                    <div className="mt-1.5">
+                      <span className={`inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border font-bold tracking-wide ${levelColors[level] ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                        <Zap size={10} className="fill-current" />
+                        {levelNames[level] ?? 'Standard'}
                       </span>
                     </div>
-                    {isUnreadEmail(email) && (
-                      <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full"></div>
-                    )}
-                  </div>
-
-                  {/* Email Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
-                        <p className={`text-base ${isUnreadEmail(email) ? 'font-bold text-gray-900 dark:text-white' : 'font-semibold text-gray-700 dark:text-gray-300'} truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors`}>
-                          {getSenderInfo(email).senderName}
-                        </p>
-                        <div className="flex items-center space-x-2">
-                          {((email.attachments && email.attachments.length > 0) || email.hasAttachments) && (
-                            <div className="flex-shrink-0 p-1 bg-gray-100 dark:bg-gray-700 rounded-lg group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30 transition-colors">
-                              <svg className="w-3 h-3 text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                              </svg>
-                            </div>
-                          )}
-                          {email.isStarred && (
-                            <div className="flex-shrink-0 p-1 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
-                              <svg className="w-3 h-3 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                              </svg>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 flex-shrink-0 ml-3">
-                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-full group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30 transition-colors">
-                          {formatTime(email.timestamp)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <h3 className={`text-sm leading-tight ${isUnreadEmail(email) ? 'font-bold text-gray-900 dark:text-white' : 'font-semibold text-gray-700 dark:text-gray-300'} mb-2 truncate group-hover:text-blue-800 dark:group-hover:text-blue-200 transition-colors`}>
-                      {email.subject || '(No Subject)'}
-                    </h3>
-
-                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3 leading-relaxed font-medium">
-                      {(() => {
-                        const content = getCleanPreviewText(email);
-                        return content ? truncateText(content, 120) : 'No content available';
-                      })()}
-                    </p>
-
-                    {/* Ultra-Modern Security Badges & Status Indicators */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm ${getSecurityBadgeColor(email.securityLevel)} group-hover:scale-105 transition-transform`}>
-                          <svg className="w-3 h-3 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
-                          {email.securityLevel ? 
-                            (email.securityLevel === 1 ? 'QKD' : 
-                             email.securityLevel === 2 ? 'Q-AES' : 
-                             email.securityLevel === 3 ? 'PQC' : 'Standard') 
-                            : 'Standard'}
-                        </span>
-
-                        {email.encrypted && (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 dark:from-green-900/30 dark:to-emerald-900/30 dark:text-green-300 text-xs font-semibold shadow-sm group-hover:scale-105 transition-transform">
-                            <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                            </svg>
-                            Encrypted
-                          </span>
-                        )}
-                      </div>
-                      
-                      {/* Priority & Status Indicators */}
-                      <div className="flex items-center space-x-1">
-                        {isUnreadEmail(email) && (
-                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                        )}
-                        <svg className="w-4 h-4 text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          );
+        })}
       </div>
     </div>
-  )
-}
+  );
+};
+
+export default EmailList;

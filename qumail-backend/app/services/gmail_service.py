@@ -5,6 +5,7 @@ import asyncio
 import aiohttp
 import json
 import logging
+import random
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,11 @@ class GmailService:
         self.smtp_host = "smtp.gmail.com"
         self.smtp_port = 587
         self.base_url = "https://gmail.googleapis.com/gmail/v1"
+        self._max_request_retries = 5
+        self._initial_backoff_seconds = 1.0
+        self._max_backoff_seconds = 16.0
+        self._retryable_statuses = {429, 500, 502, 503, 504}
+        self._max_concurrent_fetches = 5
 
     async def send_email_oauth(self, user_email: str, access_token: str, mime_message: bytes) -> str | None:
         auth_string = f"user={user_email}\x01auth=Bearer {access_token}\x01\x01"
@@ -74,23 +80,28 @@ class GmailService:
                 if page_token:
                     params["pageToken"] = page_token
                 
-                async with session.get(list_url, headers=headers, params=params) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Failed to fetch message list: {response.status}, {error_text}")
-                        return {"emails": [], "next_page_token": None}
-                    
-                    data = await response.json()
-                    messages = data.get("messages", [])
-                    next_page_token = data.get("nextPageToken")
+                data = await self._get_json_with_backoff(session, list_url, headers, params=params)
+                if not data:
+                    return {"emails": [], "next_page_token": None}
+
+                messages = data.get("messages", [])
+                next_page_token = data.get("nextPageToken")
                 
                 # Fetch detailed message data with parallel requests
                 detailed_messages = []
                 tasks = []
+                semaphore = asyncio.Semaphore(self._max_concurrent_fetches)
+
+                async def throttled_fetch(message_id: str):
+                    async with semaphore:
+                        return await self._fetch_message_details(session, message_id, headers)
                 
                 # Create tasks for parallel fetching
                 for message in messages:
-                    task = asyncio.create_task(self._fetch_message_details(session, message['id'], headers))
+                    message_id = message.get('id')
+                    if not message_id:
+                        continue
+                    task = asyncio.create_task(throttled_fetch(message_id))
                     tasks.append(task)
                 
                 # Process results as they complete
@@ -120,18 +131,82 @@ class GmailService:
         """Fetch details for a single message"""
         try:
             detail_url = f"{self.base_url}/users/me/messages/{message_id}"
-            async with session.get(detail_url, headers=headers) as detail_response:
-                if detail_response.status != 200:
-                    error_text = await detail_response.text()
-                    logger.error(f"Error fetching message {message_id}: {detail_response.status}, {error_text}")
-                    return None
-                    
-                detail_data = await detail_response.json()
-                return self._parse_gmail_message(detail_data)
+            detail_data = await self._get_json_with_backoff(
+                session,
+                detail_url,
+                headers,
+                allow_statuses={404}
+            )
+            if not detail_data:
+                return None
+            return self._parse_gmail_message(detail_data)
                 
         except Exception as e:
             logger.error(f"Error fetching message {message_id}: {e}")
             return None
+
+    async def _get_json_with_backoff(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        headers: Dict[str, str],
+        params: Optional[Dict[str, Any]] = None,
+        allow_statuses: Optional[set[int]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Perform a GET request with exponential backoff for retryable Gmail errors."""
+        backoff = self._initial_backoff_seconds
+        for attempt in range(1, self._max_request_retries + 1):
+            try:
+                async with session.get(url, headers=headers, params=params) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    if allow_statuses and response.status in allow_statuses:
+                        logger.info(
+                            "Gmail request %s returned status %s (allowed)",
+                            url,
+                            response.status
+                        )
+                        return None
+
+                    error_text = await response.text()
+                    if response.status in self._retryable_statuses:
+                        wait_time = min(backoff, self._max_backoff_seconds) + random.uniform(0, 0.5)
+                        logger.warning(
+                            "Gmail request %s failed with %s (%s/%s). Retrying in %.2fs",
+                            url,
+                            response.status,
+                            attempt,
+                            self._max_request_retries,
+                            wait_time
+                        )
+                        await asyncio.sleep(wait_time)
+                        backoff *= 2
+                        continue
+
+                    logger.error(
+                        "Gmail request %s failed permanently: %s %s",
+                        url,
+                        response.status,
+                        error_text
+                    )
+                    raise RuntimeError(f"Gmail API request failed: {response.status} {error_text}")
+            except aiohttp.ClientError as client_error:
+                wait_time = min(backoff, self._max_backoff_seconds) + random.uniform(0, 0.5)
+                logger.warning(
+                    "Gmail client error for %s (%s/%s): %s. Retrying in %.2fs",
+                    url,
+                    attempt,
+                    self._max_request_retries,
+                    client_error,
+                    wait_time
+                )
+                await asyncio.sleep(wait_time)
+                backoff *= 2
+                continue
+
+        raise RuntimeError(
+            f"Gmail API request exceeded retry budget ({self._max_request_retries} attempts) for {url}"
+        )
     
     def _parse_gmail_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Parse Gmail API message into our format"""

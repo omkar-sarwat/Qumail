@@ -9,7 +9,7 @@ import uuid
 from ..mongo_database import get_database
 from ..api.auth import get_current_user
 from ..mongo_models import UserDocument
-from ..mongo_repositories import EmailRepository, AttachmentRepository
+from ..mongo_repositories import EmailRepository
 from ..services.gmail_service import gmail_service
 from ..services.gmail_oauth import oauth_service
 from ..services.real_quantum_email import real_quantum_email_service
@@ -695,7 +695,6 @@ async def decrypt_quantum_email(
         
         resolved_email_id = email_id
         email_repo = EmailRepository(db)
-        attachment_repo = AttachmentRepository(db)
 
         if email_id.startswith("gmail_"):
             gmail_message_id = email_id.replace("gmail_", "", 1)
@@ -735,24 +734,14 @@ async def decrypt_quantum_email(
         
         logger.info(f"Email {resolved_email_id} successfully decrypted for {current_user.email}")
         
-        # Fetch and decrypt attachments
-        attachments_data = []
-        attachments = await attachment_repo.list_by_email(resolved_email_id)
-        
-        if attachments:
-            logger.info(f"Found {len(attachments)} attachments for email {resolved_email_id}")
-            for attachment in attachments:
-                try:
-                    decrypted_content = attachment.encrypted_data or ""
-                    attachments_data.append({
-                        "filename": attachment.filename,
-                        "content": decrypted_content,
-                        "mime_type": attachment.content_type,
-                        "size": attachment.size
-                    })
-                    logger.info(f"   Decrypted attachment: {attachment.filename} ({attachment.size} bytes)")
-                except Exception as att_error:
-                    logger.error(f"Failed to decrypt attachment {attachment.filename}: {att_error}")
+        # Use decrypted attachments returned by the quantum encryption service
+        attachments_data = decryption_result.get("attachments", []) or []
+        if attachments_data:
+            logger.info(
+                "Returning %d decrypted attachment(s) for email %s",
+                len(attachments_data),
+                resolved_email_id
+            )
         
         return {
             "success": True,

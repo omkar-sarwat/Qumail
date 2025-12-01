@@ -42,5 +42,37 @@ var electronAPI = {
     removeAllListeners: function (channel) {
         electron_1.ipcRenderer.removeAllListeners(channel);
     },
+    // ==================== LOCAL DATABASE API ====================
+    db: {
+        // Email operations
+        getEmails: function (folder, limit, offset) { return electron_1.ipcRenderer.invoke('db-get-emails', folder, limit, offset); },
+        getEmail: function (id) { return electron_1.ipcRenderer.invoke('db-get-email', id); },
+        getEmailByFlowId: function (flowId) { return electron_1.ipcRenderer.invoke('db-get-email-by-flow-id', flowId); },
+        saveEmail: function (email) { return electron_1.ipcRenderer.invoke('db-save-email', email); },
+        saveEmails: function (emails) { return electron_1.ipcRenderer.invoke('db-save-emails', emails); },
+        updateEmail: function (id, updates) { return electron_1.ipcRenderer.invoke('db-update-email', id, updates); },
+        deleteEmail: function (id) { return electron_1.ipcRenderer.invoke('db-delete-email', id); },
+        getEmailCounts: function () { return electron_1.ipcRenderer.invoke('db-get-email-counts'); },
+        getUnreadCounts: function () { return electron_1.ipcRenderer.invoke('db-get-unread-counts'); },
+        searchEmails: function (query, folder) { return electron_1.ipcRenderer.invoke('db-search-emails', query, folder); },
+        // Sync queue operations
+        addToSyncQueue: function (operation, emailId, data) { return electron_1.ipcRenderer.invoke('db-add-to-sync-queue', operation, emailId, data); },
+        getPendingSync: function (limit) { return electron_1.ipcRenderer.invoke('db-get-pending-sync', limit); },
+        completeSyncItem: function (id) { return electron_1.ipcRenderer.invoke('db-complete-sync-item', id); },
+        failSyncItem: function (id, error) { return electron_1.ipcRenderer.invoke('db-fail-sync-item', id, error); },
+        getSyncQueueCount: function () { return electron_1.ipcRenderer.invoke('db-get-sync-queue-count'); },
+        // Decryption cache
+        getCachedDecryption: function (emailId) { return electron_1.ipcRenderer.invoke('db-get-cached-decryption', emailId); },
+        cacheDecryption: function (cache) { return electron_1.ipcRenderer.invoke('db-cache-decryption', cache); },
+        // Settings
+        getSetting: function (key) { return electron_1.ipcRenderer.invoke('db-get-setting', key); },
+        setSetting: function (key, value) { return electron_1.ipcRenderer.invoke('db-set-setting', key, value); },
+        // Sync metadata
+        getLastSync: function () { return electron_1.ipcRenderer.invoke('db-get-last-sync'); },
+        setLastSync: function (time) { return electron_1.ipcRenderer.invoke('db-set-last-sync', time); },
+        // Stats and maintenance
+        getStats: function () { return electron_1.ipcRenderer.invoke('db-get-stats'); },
+        clearAll: function () { return electron_1.ipcRenderer.invoke('db-clear-all'); },
+    },
 };
 electron_1.contextBridge.exposeInMainWorld('electronAPI', electronAPI);

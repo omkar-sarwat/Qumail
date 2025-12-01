@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { spawn, ChildProcess } from 'child_process'
 import axios from 'axios'
 import * as http from 'http'
+import * as database from './database'
 
 // The built directory structure
 //
@@ -18,20 +19,20 @@ process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : join(process.env.D
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
-let backendProcess: ChildProcess | null = null
-let kme1Process: ChildProcess | null = null
-let kme2Process: ChildProcess | null = null
 let isQuitting = false
 let callbackServer: http.Server | null = null
+let backendProcess: ChildProcess | null = null
 
 // 🚧 Use ['ENV_NAME'] avoid vite:define plugin - Vite@2.x
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const isDev = !app.isPackaged
 const BACKEND_PORT = 8000
-const KME1_PORT = 8010
-const KME2_PORT = 8020
 
-// Get resource paths
+// KME servers are on Render (cloud) - not local
+const KME1_URL = 'https://qumail-kme1-brzq.onrender.com'
+const KME2_URL = 'https://qumail-kme2-brzq.onrender.com'
+
+// Get resource paths for bundled Python apps
 function getResourcePath(relativePath: string): string {
   if (isDev) {
     return join(__dirname, '..', '..', relativePath)
@@ -39,37 +40,29 @@ function getResourcePath(relativePath: string): string {
   return join(process.resourcesPath, relativePath)
 }
 
-// Python executable path
-function getPythonPath(): string {
-  if (isDev) {
-    return process.platform === 'win32' ? 'python' : 'python3'
-  }
-  const pythonExe = process.platform === 'win32' ? 'python.exe' : 'python'
-  return join(process.resourcesPath, 'python', pythonExe)
-}
-
 // Start Python backend server
 async function startBackendServer(): Promise<void> {
   return new Promise((resolve, reject) => {
     const backendPath = getResourcePath('qumail-backend')
-    const pythonPath = getPythonPath()
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
     
     console.log('[Backend] Starting FastAPI server...')
     console.log('[Backend] Path:', backendPath)
-    console.log('[Backend] Python:', pythonPath)
+    console.log('[Backend] Using KME1:', KME1_URL)
+    console.log('[Backend] Using KME2:', KME2_URL)
 
     const env = {
       ...process.env,
       PYTHONUNBUFFERED: '1',
       QUMAIL_ENV: 'electron',
       BACKEND_PORT: BACKEND_PORT.toString(),
-      KME1_URL: `http://localhost:${KME1_PORT}`,
-      KME2_URL: `http://localhost:${KME2_PORT}`,
+      KM1_BASE_URL: KME1_URL,
+      KM2_BASE_URL: KME2_URL,
     }
 
     const args = ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', BACKEND_PORT.toString()]
 
-    backendProcess = spawn(pythonPath, args, {
+    backendProcess = spawn(pythonCmd, args, {
       cwd: backendPath,
       env,
       shell: true,
@@ -80,7 +73,7 @@ async function startBackendServer(): Promise<void> {
     })
 
     backendProcess.stderr?.on('data', (data) => {
-      console.error('[Backend Error]', data.toString().trim())
+      console.error('[Backend]', data.toString().trim())
     })
 
     backendProcess.on('error', (error) => {
@@ -89,7 +82,7 @@ async function startBackendServer(): Promise<void> {
     })
 
     // Wait for backend to be ready
-    const maxRetries = 30
+    const maxRetries = 60
     let retries = 0
     const checkBackend = setInterval(async () => {
       try {
@@ -103,59 +96,11 @@ async function startBackendServer(): Promise<void> {
         retries++
         if (retries >= maxRetries) {
           clearInterval(checkBackend)
-          reject(new Error('Backend server failed to start within timeout'))
+          console.log('[Backend] Server did not respond, continuing anyway...')
+          resolve() // Don't reject, let app start anyway
         }
       }
     }, 1000)
-  })
-}
-
-// Start KME simulators
-async function startKMEServers(): Promise<void> {
-  return new Promise((resolve) => {
-    const kmePath = getResourcePath('next-door-key-simulator')
-    const pythonPath = getPythonPath()
-
-    console.log('[KME] Starting quantum key management servers...')
-
-    const kme1Env = {
-      ...process.env,
-      PYTHONUNBUFFERED: '1',
-      KME_PORT: KME1_PORT.toString(),
-      KME_ID: 'KME1',
-    }
-
-    kme1Process = spawn(pythonPath, ['app.py'], {
-      cwd: kmePath,
-      env: kme1Env,
-      shell: true,
-    })
-
-    kme1Process.stdout?.on('data', (data) => {
-      console.log('[KME1]', data.toString().trim())
-    })
-
-    const kme2Env = {
-      ...process.env,
-      PYTHONUNBUFFERED: '1',
-      KME_PORT: KME2_PORT.toString(),
-      KME_ID: 'KME2',
-    }
-
-    kme2Process = spawn(pythonPath, ['app.py'], {
-      cwd: kmePath,
-      env: kme2Env,
-      shell: true,
-    })
-
-    kme2Process.stdout?.on('data', (data) => {
-      console.log('[KME2]', data.toString().trim())
-    })
-
-    setTimeout(() => {
-      console.log('[KME] Servers started')
-      resolve()
-    }, 5000)
   })
 }
 
@@ -228,6 +173,7 @@ function createWindow(): void {
     backgroundColor: '#0f172a',
     center: true, // Center window on screen
     autoHideMenuBar: true,
+    show: false, // Don't show until ready
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -237,7 +183,6 @@ function createWindow(): void {
       backgroundThrottling: false,
       disableBlinkFeatures: 'Auxclick',
     },
-    show: false, // Don't show until ready
   }
 
   // Add icon if it exists
@@ -262,10 +207,10 @@ function createWindow(): void {
 
   win.once('ready-to-show', () => {
     console.log('[Window] Window ready-to-show event fired')
+    win?.maximize() // Start maximized
     win?.show()
     win?.focus()
-    console.log('[Window] Window shown and focused')
-    // Don't auto-open DevTools - user can press F12 if needed
+    console.log('[Window] Window shown maximized and focused')
   })
 
   win.webContents.on('did-finish-load', () => {
@@ -292,9 +237,15 @@ function createWindow(): void {
       console.error('[Window] loadURL error:', error)
     })
   } else {
-    const indexPath = join(process.env.DIST!, 'index.html')
+    // In production, load from the dist folder relative to __dirname
+    const indexPath = join(__dirname, '../dist/index.html')
     console.log('[Window] Loading production file:', indexPath)
-    win.loadFile(indexPath)
+    console.log('[Window] __dirname:', __dirname)
+    win.loadFile(indexPath).then(() => {
+      console.log('[Window] loadFile completed successfully')
+    }).catch((error) => {
+      console.error('[Window] loadFile error:', error)
+    })
   }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -314,19 +265,14 @@ function createWindow(): void {
 function cleanup() {
   console.log('[Cleanup] Shutting down services...')
   
+  // Close database
+  database.closeDatabase()
+  
+  // Kill backend process
   if (backendProcess) {
+    console.log('[Cleanup] Stopping backend server...')
     backendProcess.kill()
     backendProcess = null
-  }
-  
-  if (kme1Process) {
-    kme1Process.kill()
-    kme1Process = null
-  }
-  
-  if (kme2Process) {
-    kme2Process.kill()
-    kme2Process = null
   }
 }
 
@@ -345,6 +291,11 @@ app.whenReady().then(async () => {
     console.log('[App] Is Dev Mode:', isDev)
     console.log('[App] =================================================')
     
+    // Initialize local SQLite database
+    console.log('[App] Initializing local database...')
+    database.initDatabase()
+    console.log('[App] Local database initialized!')
+    
     // Ensure we're the only instance
     const gotTheLock = app.requestSingleInstanceLock()
     if (!gotTheLock) {
@@ -361,14 +312,11 @@ app.whenReady().then(async () => {
       }
     })
     
-    if (isDev) {
-      // In dev mode, backend and KME run separately
-      console.log('[App] Development mode - expecting external backend')
-    } else {
-      // In production, start embedded backend
-      await startKMEServers()
-      await startBackendServer()
-    }
+    // Start backend server (KME servers are on Render cloud)
+    console.log('[App] Starting backend server...')
+    console.log('[App] KME servers on Render:', KME1_URL, KME2_URL)
+    await startBackendServer()
+    console.log('[App] Backend server started!')
     
     console.log('[App] Creating main window...')
     createWindow()
@@ -689,6 +637,224 @@ ipcMain.handle('start-oauth-flow', async (_, { authUrl, state }) => {
       }
     }, 5 * 60 * 1000)
   })
+})
+
+// ==================== DATABASE IPC HANDLERS ====================
+
+// Get emails from local database
+ipcMain.handle('db-get-emails', (_event, folder: string, limit?: number, offset?: number) => {
+  try {
+    return { success: true, data: database.getEmails(folder, limit || 100, offset || 0) }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get email by ID
+ipcMain.handle('db-get-email', (_event, id: string) => {
+  try {
+    return { success: true, data: database.getEmailById(id) }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get email by flow ID
+ipcMain.handle('db-get-email-by-flow-id', (_event, flowId: string) => {
+  try {
+    return { success: true, data: database.getEmailByFlowId(flowId) }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Save email to local database
+ipcMain.handle('db-save-email', (_event, email: any) => {
+  try {
+    database.saveEmail(email)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Save multiple emails
+ipcMain.handle('db-save-emails', (_event, emails: any[]) => {
+  try {
+    database.saveEmails(emails)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Update email status
+ipcMain.handle('db-update-email', (_event, id: string, updates: any) => {
+  try {
+    database.updateEmailStatus(id, updates)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Delete email
+ipcMain.handle('db-delete-email', (_event, id: string) => {
+  try {
+    database.deleteEmail(id)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get email counts
+ipcMain.handle('db-get-email-counts', () => {
+  try {
+    return { success: true, data: database.getEmailCounts() }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get unread counts
+ipcMain.handle('db-get-unread-counts', () => {
+  try {
+    return { success: true, data: database.getUnreadCounts() }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Search emails
+ipcMain.handle('db-search-emails', (_event, query: string, folder?: string) => {
+  try {
+    return { success: true, data: database.searchEmails(query, folder) }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Add to sync queue
+ipcMain.handle('db-add-to-sync-queue', (_event, operation: string, emailId: string, data?: any) => {
+  try {
+    database.addToSyncQueue(operation as any, emailId, data)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get pending sync items
+ipcMain.handle('db-get-pending-sync', (_event, limit?: number) => {
+  try {
+    return { success: true, data: database.getPendingSyncItems(limit) }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Complete sync item
+ipcMain.handle('db-complete-sync-item', (_event, id: number) => {
+  try {
+    database.completeSyncItem(id)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Fail sync item
+ipcMain.handle('db-fail-sync-item', (_event, id: number, error: string) => {
+  try {
+    database.failSyncItem(id, error)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get sync queue count
+ipcMain.handle('db-get-sync-queue-count', () => {
+  try {
+    return { success: true, data: database.getSyncQueueCount() }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get cached decryption
+ipcMain.handle('db-get-cached-decryption', (_event, emailId: string) => {
+  try {
+    return { success: true, data: database.getCachedDecryption(emailId) }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Cache decrypted content
+ipcMain.handle('db-cache-decryption', (_event, cache: any) => {
+  try {
+    database.cacheDecryptedContent(cache)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get/set settings
+ipcMain.handle('db-get-setting', (_event, key: string) => {
+  try {
+    return { success: true, data: database.getSetting(key) }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('db-set-setting', (_event, key: string, value: string) => {
+  try {
+    database.setSetting(key, value)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Sync metadata
+ipcMain.handle('db-get-last-sync', () => {
+  try {
+    return { success: true, data: database.getLastSyncTime() }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('db-set-last-sync', (_event, time: string) => {
+  try {
+    database.setLastSyncTime(time)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Get database stats
+ipcMain.handle('db-get-stats', () => {
+  try {
+    return { success: true, data: database.getDatabaseStats() }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Clear all data (for logout)
+ipcMain.handle('db-clear-all', () => {
+  try {
+    database.clearAllData()
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
 })
 
 // Security: Prevent new window creation

@@ -76,11 +76,25 @@ class RealEncryptedGmailService:
             flow_id = encryption_result.get("flow_id", "")
             algorithm = encryption_result.get("algorithm", "")
             
+            # Extract encryption metadata for headers
+            encryption_metadata = encryption_result.get("encryption_metadata", {})
+            key_id = encryption_result.get("key_id", "") or encryption_metadata.get("key_id", "")
+            
+            # Get key fragments, auth_tag, nonce from metadata
+            key_fragments = encryption_metadata.get("key_fragments", [])
+            if not key_fragments and key_id:
+                key_fragments = [key_id]
+            auth_tag = encryption_metadata.get("auth_tag", "")
+            nonce = encryption_metadata.get("nonce", "")
+            salt = encryption_metadata.get("salt", "")
+            plaintext_size = encryption_metadata.get("plaintext_size", 0) or encryption_metadata.get("required_size", 0)
+            
             logger.info(f"✅ Encryption complete!")
             logger.info(f"   Algorithm: {algorithm}")
             logger.info(f"   Email ID: {email_id}")
             logger.info(f"   Flow ID: {flow_id}")
             logger.info(f"   Encrypted size: {len(encrypted_body_base64)} bytes")
+            logger.info(f"   Key fragments: {len(key_fragments)}")
             logger.info(f"   Encrypted preview: {encrypted_body_base64[:100]}...")
             
             # Step 2: Create security level prefix for subject
@@ -99,12 +113,27 @@ class RealEncryptedGmailService:
             mime_message['From'] = sender_email
             mime_message['To'] = recipient_email
             
-            # Add headers for QuMail identification
+            # Add headers for QuMail identification and decryption metadata
             mime_message.add_header('X-QuMail-Encrypted', 'true')
             mime_message.add_header('X-QuMail-Security-Level', str(security_level))
             mime_message.add_header('X-QuMail-Email-ID', str(email_id))
             mime_message.add_header('X-QuMail-Flow-ID', flow_id)
             mime_message.add_header('X-QuMail-Algorithm', algorithm)
+            
+            # Add decryption metadata headers for direct decrypt (no MongoDB lookup needed)
+            if key_id:
+                mime_message.add_header('X-QuMail-Key-ID', key_id)
+            if key_fragments:
+                # Store key fragments as JSON array in header
+                mime_message.add_header('X-QuMail-Key-Fragments', json.dumps(key_fragments))
+            if auth_tag:
+                mime_message.add_header('X-QuMail-Auth-Tag', auth_tag)
+            if nonce:
+                mime_message.add_header('X-QuMail-Nonce', nonce)
+            if salt:
+                mime_message.add_header('X-QuMail-Salt', salt)
+            if plaintext_size:
+                mime_message.add_header('X-QuMail-Plaintext-Size', str(plaintext_size))
             
             # Plain text part: Show encrypted data as text (gibberish in other mail clients)
             plain_text_content = self._create_encrypted_text_view(

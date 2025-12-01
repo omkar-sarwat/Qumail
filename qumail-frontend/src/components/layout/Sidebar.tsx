@@ -8,7 +8,6 @@ import {
   Star,
   Edit,
   Shield,
-  Settings,
   User,
   LogOut
 } from 'lucide-react'
@@ -226,10 +225,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Footer Actions */}
       <div className="p-4 border-t border-gray-200 dark:border-gray-700">
         <div className="space-y-2">
-          <Button variant="ghost" size="sm" className="w-full justify-start">
-            <Settings className="w-4 h-4 mr-2" />
-            Settings
-          </Button>
           {user && (
             <Button
               variant="ghost"

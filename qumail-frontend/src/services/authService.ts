@@ -25,6 +25,12 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     
+    // Don't try to refresh or redirect if offline
+    if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      console.log('[AuthService] Network error while offline - not logging out');
+      return Promise.reject(error);
+    }
+    
     // If error is 401 and we haven't tried refreshing yet
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
@@ -50,7 +56,13 @@ apiClient.interceptors.response.use(
         
         // Retry original request
         return apiClient(originalRequest);
-      } catch (refreshError) {
+      } catch (refreshError: any) {
+        // Don't redirect if offline
+        if (!navigator.onLine || refreshError.code === 'ERR_NETWORK' || refreshError.message === 'Network Error') {
+          console.log('[AuthService] Refresh failed while offline - keeping auth state');
+          return Promise.reject(refreshError);
+        }
+        
         // If refresh fails, clear auth and redirect to login
         localStorage.removeItem('authToken');
         localStorage.removeItem('refreshToken');
@@ -167,6 +179,13 @@ class AuthService {
    */
   isAuthenticated(): boolean {
     return !!localStorage.getItem('authToken');
+  }
+
+  /**
+   * Get stored auth token
+   */
+  getToken(): string | null {
+    return localStorage.getItem('authToken');
   }
 
   /**

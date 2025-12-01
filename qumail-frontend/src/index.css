@@ -2,168 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent FOUC (Flash of Unstyled Content) */
+html {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Smooth rendering */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent layout shift during load */
+#root {
+  min-height: 100vh;
+  background: white;
+}
+
 /* Base styles */
 :root {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-
-  --qumail-text: #0f172a;
-  --qumail-muted: #475569;
-  --qumail-background: #f6f7fb;
-  --qumail-surface: rgba(255, 255, 255, 0.78);
-  --qumail-surface-strong: rgba(255, 255, 255, 0.92);
-  --qumail-border: rgba(15, 23, 42, 0.08);
-  --qumail-border-strong: rgba(15, 23, 42, 0.14);
-  --qumail-gradient-start: #eef2ff;
-  --qumail-gradient-middle: #fdf2f8;
-  --qumail-gradient-end: #fefce8;
-
-  --qumail-dark-text: #f8fafc;
   --qumail-dark-muted: #cbd5f5;
-  --qumail-dark-background: #020617;
-  --qumail-dark-surface: rgba(15, 23, 42, 0.72);
-  --qumail-dark-surface-strong: rgba(15, 23, 42, 0.88);
-  --qumail-dark-border: rgba(148, 163, 184, 0.14);
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  height: 100vh;
-  max-height: 100vh;
-  color: var(--qumail-text);
-  background-color: var(--qumail-background);
-  background-image: radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.08), transparent 60%),
-    radial-gradient(circle at 75% 10%, rgba(236, 72, 153, 0.08), transparent 55%),
-    linear-gradient(135deg, var(--qumail-gradient-start), var(--qumail-gradient-middle) 50%, var(--qumail-gradient-end));
-  background-attachment: fixed;
-  /* Performance optimizations */
-  -webkit-backface-visibility: hidden;
-  -webkit-perspective: 1000;
-  backface-visibility: hidden;
-  perspective: 1000;
-}
-
-body, #root {
-  height: 100vh;
-  max-height: 100vh;
-  overflow: hidden;
-  margin: 0;
-  padding: 0;
-}
-
-/* Smooth scrolling for all scrollable containers */
-* {
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
-}
-
-/* Hardware acceleration for better performance */
-.hw-accelerate {
-  transform: translateZ(0);
-  will-change: transform;
-}
-
-.dark body {
-  color: var(--qumail-dark-text);
-  background-color: var(--qumail-dark-background);
-  background-image: radial-gradient(circle at 15% 15%, rgba(79, 70, 229, 0.18), transparent 55%),
-    radial-gradient(circle at 80% 0%, rgba(236, 72, 153, 0.15), transparent 60%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.98));
-}
-
-/* Ultra-Modern Scrollbar Styles - Minimalistic & Professional */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-gray-300/50 dark:bg-gray-600/50 rounded-full;
-  transition: all 0.3s ease;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-400/70 dark:bg-gray-500/70;
-}
-
-/* Scrollbar for specific containers */
-.scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  @apply bg-gray-300/40 dark:bg-gray-600/40 rounded-full;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  @apply bg-blue-400/60 dark:bg-blue-500/60;
-}
-
-/* Custom component styles */
-@layer components {
-  /* Button variants */
-  .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 ease-in-out transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
-  }
-
-  .btn-secondary {
-    @apply bg-gray-100 hover:bg-gray-200 text-gray-900 font-medium px-4 py-2 rounded-lg transition-all duration-200 ease-in-out transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2;
-  }
-
-  .btn-ghost {
-    @apply bg-transparent hover:bg-gray-100 text-gray-700 font-medium px-4 py-2 rounded-lg transition-all duration-200 ease-in-out transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2;
-  }
-
-  .btn-danger {
-    @apply bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 ease-in-out transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2;
-  }
-
-  /* Security level badges */
-  .security-badge {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
-  }
-
-  .security-level-1 {
-    @apply bg-green-100 text-green-800 border border-green-200;
-  }
-
-  .security-level-2 {
-    @apply bg-blue-100 text-blue-800 border border-blue-200;
-  }
-
-  .security-level-3 {
-    @apply bg-purple-100 text-purple-800 border border-purple-200;
-  }
-
-  .security-level-4 {
-    @apply bg-orange-100 text-orange-800 border border-orange-200;
-  }
-
-  /* Card styles */
-  .card {
-    @apply bg-white/80 dark:bg-dark-surface border border-transparent dark:border-dark-border rounded-2xl shadow-sm backdrop-blur;
-  }
-
-  .card-hover {
-    @apply transition-all duration-200 ease-in-out hover:shadow-lg hover:-translate-y-0.5;
-  }
 
   /* Input styles */
   .input-field {
@@ -209,7 +72,12 @@ body, #root {
   @apply text-gray-700 dark:text-gray-300 leading-relaxed;
 }
 
-.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
   @apply text-gray-900 dark:text-gray-100 font-semibold mt-6 mb-4;
 }
 
@@ -217,7 +85,8 @@ body, #root {
   @apply mb-4;
 }
 
-.prose ul, .prose ol {
+.prose ul,
+.prose ol {
   @apply mb-4 pl-6;
 }
 
@@ -243,9 +112,12 @@ body, #root {
 
 /* Loading animations */
 @keyframes pulse-slow {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
   }
+
   50% {
     opacity: .5;
   }
@@ -266,6 +138,7 @@ body, #root {
   0% {
     background-position: -200% 0;
   }
+
   100% {
     background-position: 200% 0;
   }
@@ -363,39 +236,6 @@ body, #root {
 
 /* Minimal link styling */
 .email-html-content a {
-  word-wrap: break-word;
-}
-
-/* Text content styling */
-.email-text-content {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #202124;
-  background: transparent;
-  padding: 0;
-  margin: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
-
-/* Email viewer layout - Full Width */
-.email-viewer-body-wrapper {
-  background: transparent;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow-y: auto;
-}
-
-.email-viewer-content-inner {
-  width: 100%;
-  max-width: 100%;
-  margin: 0;
-  padding: 24px;
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
   overflow: visible;
 }
 
@@ -414,8 +254,8 @@ body, #root {
 }
 
 /* Ensure text is readable in dark mode - only if no background is set */
-.dark .email-html-content > div:not([style*="background"]),
-.dark .email-html-content > table:not([style*="background"]) {
+.dark .email-html-content>div:not([style*="background"]),
+.dark .email-html-content>table:not([style*="background"]) {
   background: #1f1f1f;
 }
 
@@ -449,6 +289,7 @@ body, #root {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -460,6 +301,7 @@ body, #root {
     opacity: 0;
     transform: translateX(20px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -525,6 +367,7 @@ body, #root {
   0% {
     background-position: -200% 0;
   }
+
   100% {
     background-position: 200% 0;
   }
@@ -545,27 +388,35 @@ body, #root {
     padding: 0;
     margin: 0;
   }
-  
+
   .email-viewer-body-wrapper {
     padding: 0;
   }
-  
+
   .email-viewer-content-inner {
     padding: 16px;
   }
-  
+
   .email-html-content table {
     font-size: 12px !important;
   }
-  
+
   .email-html-content table td,
   .email-html-content table th {
     padding: 4px !important;
   }
-  
-  .email-html-content h1 { font-size: 20px !important; }
-  .email-html-content h2 { font-size: 18px !important; }
-  .email-html-content h3 { font-size: 16px !important; }
+
+  .email-html-content h1 {
+    font-size: 20px !important;
+  }
+
+  .email-html-content h2 {
+    font-size: 18px !important;
+  }
+
+  .email-html-content h3 {
+    font-size: 16px !important;
+  }
 }
 
 /* Print styles for emails */
@@ -575,13 +426,13 @@ body, #root {
     box-shadow: none !important;
     padding: 0 !important;
   }
-  
+
   .email-html-content,
   .email-html-content * {
     color: black !important;
     background: transparent !important;
   }
-  
+
   .email-html-content a {
     color: blue !important;
     text-decoration: underline !important;

@@ -1,5 +1,6 @@
-import axios, { AxiosInstance } from 'axios'
+import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios'
 import { useAuthStore } from '../stores/authStore'
+import { offlineService, LocalEmail } from './offlineService'
 
 // API Response types
 export interface ApiResponse<T = any> {
@@ -7,6 +8,13 @@ export interface ApiResponse<T = any> {
   data?: T
   error?: string
   message?: string
+}
+
+// Retry configuration
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  retryDelay: 1000,
+  retryableStatuses: [408, 429, 500, 502, 503, 504],
 }
 
 export interface EmailsResponse {
@@ -82,7 +90,9 @@ class ApiService {
   constructor() {
     this.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
     
-    console.log('API Service initialized with baseURL:', this.baseURL)
+    if (import.meta.env.DEV) {
+      console.log('API Service initialized with baseURL:', this.baseURL)
+    }
     
     this.api = axios.create({
       baseURL: this.baseURL,
@@ -98,8 +108,7 @@ class ApiService {
         const token =
           this.token ||
           useAuthStore.getState().sessionToken ||
-          localStorage.getItem('authToken') ||
-          'VALID_ACCESS_TOKEN'  // Test token fallback for development
+          localStorage.getItem('authToken')
         if (token) {
           config.headers.Authorization = `Bearer ${token}`
         }
@@ -111,15 +120,49 @@ class ApiService {
       }
     )
 
-    // Response interceptor to handle auth errors
+    // Response interceptor with retry logic and better error handling
     this.api.interceptors.response.use(
       (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
-          // Token expired or invalid
-          useAuthStore.getState().logout()
-          window.location.href = '/'
+      async (error: AxiosError) => {
+        const originalRequest = error.config as AxiosRequestConfig & { _retryCount?: number }
+        
+        // Don't retry or redirect if offline
+        if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+          if (import.meta.env.DEV) {
+            console.log('[API] Network error while offline - not retrying')
+          }
+          return Promise.reject(error)
         }
+        
+        // Handle 401 Unauthorized
+        if (error.response?.status === 401) {
+          if (navigator.onLine) {
+            console.log('[API] Got 401 while online - logging out')
+            useAuthStore.getState().logout()
+            window.location.href = '/'
+          }
+          return Promise.reject(error)
+        }
+        
+        // Retry logic for retryable errors
+        if (originalRequest && RETRY_CONFIG.retryableStatuses.includes(error.response?.status || 0)) {
+          const retryCount = originalRequest._retryCount || 0
+          
+          if (retryCount < RETRY_CONFIG.maxRetries) {
+            originalRequest._retryCount = retryCount + 1
+            
+            // Exponential backoff
+            const delay = RETRY_CONFIG.retryDelay * Math.pow(2, retryCount)
+            await new Promise(resolve => setTimeout(resolve, delay))
+            
+            if (import.meta.env.DEV) {
+              console.log(`[API] Retrying request (${retryCount + 1}/${RETRY_CONFIG.maxRetries})`)
+            }
+            
+            return this.api(originalRequest)
+          }
+        }
+        
         return Promise.reject(error)
       }
     )
@@ -169,7 +212,14 @@ class ApiService {
     await this.api.post(this.withPrefix('/auth/logout'))
   }
 
-  // Emails
+  // ==================== OFFLINE-FIRST EMAIL OPERATIONS ====================
+
+  /**
+   * Get emails with offline-first approach:
+   * 1. First, get emails from local SQLite database (instant)
+   * 2. If online, fetch from server in background and update local DB
+   * 3. Return merged results
+   */
   async getEmails(params: {
     folder?: string
     securityLevel?: 1 | 2 | 3 | 4
@@ -182,39 +232,154 @@ class ApiService {
     const {
       folder = 'inbox',
       pageToken,
-      maxResults,
+      maxResults = 50,
       ...rest
     } = params
 
-    const query: Record<string, any> = { ...rest }
-    if (pageToken) query.page_token = pageToken
-    if (typeof maxResults !== 'undefined') query.max_results = maxResults
+    // Step 1: Try to get from local database first (if in Electron)
+    let localEmails: any[] = []
+    if (offlineService.isElectronApp) {
+      try {
+        const localData = await offlineService.getLocalEmails(folder, maxResults, 0)
+        localEmails = localData.map(this.convertLocalEmailToResponse)
+        console.log(`📦 Loaded ${localEmails.length} emails from local database`)
+      } catch (error) {
+        console.warn('Failed to get local emails:', error)
+      }
+    }
 
-    const response = await this.api.get<any>(
-      this.withPrefix(`/emails/${folder}`),
-      { params: query }
-    )
+    // Step 2: If online, fetch from server
+    if (offlineService.isOnline) {
+      try {
+        const query: Record<string, any> = { ...rest }
+        if (pageToken) query.page_token = pageToken
+        if (typeof maxResults !== 'undefined') query.max_results = maxResults
 
-    const data = response.data ?? {}
+        const response = await this.api.get<any>(
+          this.withPrefix(`/emails/${folder}`),
+          { params: query }
+        )
 
+        const data = response.data ?? {}
+        const serverEmails = data.emails ?? []
+
+        // Step 3: Save server emails to local database
+        if (offlineService.isElectronApp && serverEmails.length > 0) {
+          const localFormat = serverEmails.map((email: any) => 
+            offlineService.convertServerEmailToLocal({ ...email, folder })
+          )
+          await offlineService.saveEmailsLocally(localFormat)
+          console.log(`💾 Saved ${serverEmails.length} emails to local database`)
+        }
+
+        return {
+          emails: serverEmails,
+          nextPageToken: data.next_page_token ?? data.nextPageToken,
+          totalCount: data.total_count ?? data.totalCount ?? serverEmails.length,
+        }
+      } catch (error) {
+        console.warn('Failed to fetch from server, using local data:', error)
+        // Fall back to local data if server fails
+        if (localEmails.length > 0) {
+          return {
+            emails: localEmails,
+            nextPageToken: undefined,
+            totalCount: localEmails.length
+          }
+        }
+        throw error
+      }
+    }
+
+    // Offline mode - return local data only
+    console.log('📴 Offline mode - using local database only')
     return {
-      emails: data.emails ?? [],
-      nextPageToken: data.next_page_token ?? data.nextPageToken,
-      totalCount: data.total_count ?? data.totalCount ?? (data.emails ? data.emails.length : 0),
+      emails: localEmails,
+      nextPageToken: undefined,
+      totalCount: localEmails.length
+    }
+  }
+
+  /**
+   * Convert local email format to API response format
+   */
+  private convertLocalEmailToResponse(email: LocalEmail): any {
+    return {
+      id: email.id,
+      threadId: email.thread_id,
+      subject: email.subject,
+      fromAddress: email.sender_email,
+      from_name: email.sender_name,
+      toAddress: email.recipient_email,
+      body: email.is_decrypted ? email.decrypted_content : email.body,
+      bodyHtml: email.is_decrypted ? email.decrypted_html : email.body_html,
+      bodyEncrypted: email.body_encrypted,
+      snippet: email.snippet,
+      securityLevel: email.security_level,
+      timestamp: email.timestamp,
+      isRead: email.is_read,
+      isStarred: email.is_starred,
+      isEncrypted: email.is_encrypted,
+      isDecrypted: email.is_decrypted,
+      globallyDecrypted: email.globally_decrypted,
+      flowId: email.flow_id,
+      security_info: email.security_info ? JSON.parse(email.security_info) : undefined,
+      requires_decryption: email.is_encrypted && !email.is_decrypted,
+      labels: [],
+      hasAttachments: !!email.attachments,
+      attachments: email.attachments ? JSON.parse(email.attachments) : [],
+      // Flag to indicate this came from local cache
+      _fromLocalCache: true
     }
   }
 
   async getEmailDetails(emailId: string): Promise<any> {
+    // Try local first
+    if (offlineService.isElectronApp) {
+      const localEmail = await offlineService.getLocalEmail(emailId)
+      if (localEmail) {
+        console.log(`📦 Loaded email details from local database: ${emailId}`)
+        return this.convertLocalEmailToResponse(localEmail)
+      }
+    }
+
+    // Fetch from server
     const response = await this.api.get(this.withPrefix(`/emails/email/${emailId}`))
+    
+    // Save to local database
+    if (offlineService.isElectronApp && response.data) {
+      await offlineService.saveEmailLocally(
+        offlineService.convertServerEmailToLocal(response.data)
+      )
+    }
+    
     return response.data
   }
 
   async markEmailAsRead(emailId: string, isRead: boolean): Promise<void> {
-    await this.api.post(this.withPrefix(`/emails/${emailId}/read`), { isRead })
+    // Update local database immediately
+    if (offlineService.isElectronApp) {
+      await offlineService.markAsReadLocally(emailId, isRead)
+    }
+
+    // If online, also update server
+    if (offlineService.isOnline) {
+      await this.api.post(this.withPrefix(`/emails/${emailId}/read`), { isRead })
+    }
+    // If offline, the change is queued in the local database sync queue
   }
 
   async toggleEmailStar(emailId: string, isStarred: boolean): Promise<void> {
-    await this.api.patch(this.withPrefix(`/emails/${emailId}/star`), { isStarred })
+    // Update local database immediately
+    if (offlineService.isElectronApp) {
+      await offlineService.markAsStarredLocally(emailId, isStarred)
+    }
+
+    // If online, also update server
+    if (offlineService.isOnline) {
+      await this.api.patch(this.withPrefix(`/emails/${emailId}/star`), { isStarred })
+    }
+    // If offline, the change is queued in the local database sync queue
   }
 
   async deleteEmail(emailId: string): Promise<void> {

@@ -109,10 +109,49 @@ class QuantumEncryptionService:
         if not email:
             raise ValueError(f"Email {normalized} not found")
 
-        if (
-            email.sender_email != user_email
-            and email.receiver_email != user_email
-            and email.user_id != requesting_user_id
+        metadata_payload = email.encryption_metadata or {}
+        if isinstance(metadata_payload, str):
+            try:
+                metadata_dict = json.loads(metadata_payload)
+            except json.JSONDecodeError:
+                metadata_dict = {"raw_metadata": metadata_payload}
+        else:
+            metadata_dict = dict(metadata_payload)
+
+        allowed_emails = set(email.allowed_emails or [])
+        if not allowed_emails:
+            allowed_emails = complete_email_service._collect_allowed_email_set(
+                email.sender_email,
+                email.receiver_email,
+                metadata_dict.get("cc"),
+                metadata_dict.get("bcc"),
+                extra_addresses=[
+                    metadata_dict.get("replyTo"),
+                    metadata_dict.get("receiverDisplay"),
+                    metadata_dict.get("senderDisplay"),
+                    metadata_dict.get("toHeader"),
+                    metadata_dict.get("fromHeader"),
+                    metadata_dict.get("to"),
+                    metadata_dict.get("recipientRaw"),
+                ],
+            )
+
+        normalize = complete_email_service._normalize_email_address
+        normalized_requester = normalize(user_email)
+        normalized_allowed = set()
+        for value in allowed_emails:
+            normalized_value = normalize(value)
+            if normalized_value:
+                normalized_allowed.add(normalized_value)
+        normalized_sender = normalize(email.sender_email)
+        normalized_receiver = normalize(email.receiver_email)
+        belongs_to_user = str(getattr(email, "user_id", "")) == str(requesting_user_id)
+
+        if not (
+            belongs_to_user
+            or (normalized_requester and normalized_requester in normalized_allowed)
+            or (normalized_requester and normalized_sender == normalized_requester)
+            or (normalized_requester and normalized_receiver == normalized_requester)
         ):
             raise PermissionError("Access denied: requester is not associated with this email")
 
@@ -131,6 +170,7 @@ class QuantumEncryptionService:
             "timestamp": result.get("timestamp"),
             "flow_id": result.get("flow_id"),
             "encrypted_size": len(email.body_encrypted or ""),
+            "attachments": result.get("attachments", []),
         }
 
     async def get_encryption_status(self) -> Dict[str, Any]:

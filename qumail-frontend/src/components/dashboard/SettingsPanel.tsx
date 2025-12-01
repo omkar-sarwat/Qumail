@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '../ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card'
+import { GoogleAuthSetup } from '../settings/GoogleAuthSetup'
 
 interface User {
   id: string
@@ -44,15 +45,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-        </svg>
-      )
-    },
-    {
-      id: 'keymanager',
-      name: 'Key Manager',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
         </svg>
       )
     },
@@ -155,6 +147,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   const renderSecurityTab = () => (
     <div className="space-y-6">
+      {/* Google Authenticator Setup */}
+      <GoogleAuthSetup />
+      
       <Card>
         <CardHeader>
           <CardTitle>Security Preferences</CardTitle>
@@ -256,7 +251,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     </div>
   )
 
-  const renderKeyManagerTab = () => (
+  // Key Manager tab
+  const _renderKeyManagerTab = () => (
     <div className="space-y-6">
       <Card>
         <CardHeader>
@@ -386,8 +382,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
 
             <p className="text-sm text-gray-600 dark:text-gray-400 max-w-md mx-auto">
-              The world's first quantum-secured email platform using real quantum key distribution 
-              for unbreakable encryption and perfect forward secrecy.
+              QuMail is our quantum-secured mail client that links the ETSI QKD simulator with Gmail.
+              Pick a security level, send encrypted mail, and decrypt everything inside the app.
             </p>
           </div>
         </CardContent>
@@ -400,24 +396,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <CardContent>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Protocol:</span>
+              <span className="text-gray-600 dark:text-gray-400">Version</span>
+              <span className="font-medium text-gray-900 dark:text-white">v1.0.0</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600 dark:text-gray-400">Protocol</span>
               <span className="font-medium text-gray-900 dark:text-white">ETSI GS QKD-014</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Encryption:</span>
-              <span className="font-medium text-gray-900 dark:text-white">Quantum + AES-256</span>
+              <span className="text-gray-600 dark:text-gray-400">Backend</span>
+              <span className="font-medium text-gray-900 dark:text-white">FastAPI (Python)</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Key Distribution:</span>
-              <span className="font-medium text-gray-900 dark:text-white">QKD Active</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Backend:</span>
-              <span className="font-medium text-gray-900 dark:text-white">FastAPI + Rust KME</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Frontend:</span>
-              <span className="font-medium text-gray-900 dark:text-white">React + TypeScript</span>
+              <span className="text-gray-600 dark:text-gray-400">Frontend</span>
+              <span className="font-medium text-gray-900 dark:text-white">React + Electron</span>
             </div>
           </div>
         </CardContent>
@@ -431,10 +423,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         return renderAccountTab()
       case 'security':
         return renderSecurityTab()
-      case 'keymanager':
-        return renderKeyManagerTab()
       case 'about':
         return renderAboutTab()
+      case 'keymanager':
+        return _renderKeyManagerTab()
       default:
         return renderAccountTab()
     }
@@ -457,11 +449,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
           {/* Panel */}
           <motion.div
-            initial={{ x: 400 }}
+            initial={{ x: 500 }}
             animate={{ x: 0 }}
-            exit={{ x: 400 }}
+            exit={{ x: 500 }}
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-            className="fixed right-0 top-0 h-full w-96 bg-white dark:bg-gray-800 shadow-2xl z-50 flex flex-col"
+            className="fixed right-0 top-0 h-full w-[500px] max-w-[90vw] bg-white dark:bg-gray-800 shadow-2xl z-50 flex flex-col"
             style={{ willChange: 'transform', transform: 'translateZ(0)' }}
           >
             {/* Header */}
@@ -482,8 +474,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
 
             {/* Tabs */}
-            <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700">
-              <nav className="flex space-x-1 p-4">
+            <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+              <nav className="flex space-x-1 p-4 min-w-max">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -502,8 +494,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">
-              {renderTabContent()}
+            <div className="flex-1 overflow-y-auto overflow-x-auto p-6">
+              <div className="min-w-0">
+                {renderTabContent()}
+              </div>
             </div>
           </motion.div>
         </>

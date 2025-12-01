@@ -20,6 +20,7 @@ interface AuthState {
   sessionToken: string | null
   loginUrl: string | null
   error: string | null
+  _hasHydrated: boolean
 
   // Actions
   setAuthData: (user: User, token: string) => void
@@ -30,18 +31,25 @@ interface AuthState {
   checkAuthStatus: () => Promise<void>
   getGoogleAuthUrl: () => Promise<string | null>
   handleOAuthCallback: (code: string, state: string) => Promise<boolean>
+  setHasHydrated: (state: boolean) => void
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      // Initial state
+      // Initial state - will be overwritten by persisted data
       isAuthenticated: false,
       isLoading: true,
       user: null,
       sessionToken: null,
       loginUrl: null,
       error: null,
+      _hasHydrated: false,
+
+      // Mark that store has been hydrated from storage
+      setHasHydrated: (state: boolean) => {
+        set({ _hasHydrated: state })
+      },
 
       // Set authentication data
       setAuthData: (user: User, token: string) => {
@@ -55,6 +63,10 @@ export const useAuthStore = create<AuthState>()(
         
         // Set token in API service
         apiService.setAuthToken(token)
+        
+        // Also store in legacy localStorage key for MainDashboard compatibility
+        localStorage.setItem('authToken', token)
+        localStorage.setItem('user', JSON.stringify(user))
         
         toast.success(`Welcome back, ${user.displayName || user.email}!`)
       },
@@ -112,6 +124,11 @@ export const useAuthStore = create<AuthState>()(
         // Clear token from API service
         apiService.clearAuthToken()
         
+        // Clear legacy localStorage keys
+        localStorage.removeItem('authToken')
+        localStorage.removeItem('refreshToken')
+        localStorage.removeItem('user')
+        
         toast.success('Logged out successfully')
       },
 
@@ -122,57 +139,50 @@ export const useAuthStore = create<AuthState>()(
 
       // Check authentication status
       checkAuthStatus: async () => {
-        const { sessionToken } = get()
+        const { sessionToken, user } = get()
         
-        if (!sessionToken) {
-          set({ isLoading: false, isAuthenticated: false })
-          return
-        }
-
-        try {
-          set({ isLoading: true })
-          
-          // Set token in API service
+        // If we have token and user, immediately set authenticated
+        if (sessionToken && user) {
+          console.log('📴 [AuthStore] Has stored credentials - setting authenticated')
+          set({
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          })
           apiService.setAuthToken(sessionToken)
           
-          // Validate token with backend
-          const response = await apiService.validateAuth()
-          
-          if (response.isAuthenticated) {
-            set({
-              isAuthenticated: true,
-              user: {
-                email: response.email,
-                // response.name may be undefined; fallback to email prefix
-                displayName: response.name || response.email?.split('@')[0] || response.email,
-                lastLogin: new Date().toISOString(),
-                createdAt: new Date().toISOString(),
-                oauthConnected: true,
-              },
-              isLoading: false,
-              error: null,
-            })
-          } else {
-            // Token is invalid, clear auth
-            set({
-              isAuthenticated: false,
-              user: null,
-              sessionToken: null,
-              isLoading: false,
-            })
-            apiService.clearAuthToken()
+          // If offline, we're done
+          if (!navigator.onLine) {
+            console.log('📴 [AuthStore] Offline mode - using cached auth')
+            return
           }
-        } catch (error) {
-          console.error('Auth check failed:', error)
-          set({
-            isAuthenticated: false,
-            user: null,
-            sessionToken: null,
-            isLoading: false,
-            error: 'Authentication check failed',
-          })
-          apiService.clearAuthToken()
+          
+          // If online, verify in background (don't block UI)
+          console.log('🌐 [AuthStore] Online - verifying auth in background')
+          try {
+            const response = await apiService.validateAuth()
+            if (!response.isAuthenticated) {
+              console.log('⚠️ [AuthStore] Server says not authenticated - clearing')
+              set({
+                isAuthenticated: false,
+                user: null,
+                sessionToken: null,
+                isLoading: false,
+              })
+              apiService.clearAuthToken()
+            } else {
+              console.log('✅ [AuthStore] Server verified authentication')
+            }
+          } catch (error: any) {
+            // Network error - keep cached auth
+            console.log('⚠️ [AuthStore] Verification failed - keeping cached auth:', error.message)
+          }
+          return
         }
+        
+        // No stored credentials
+        console.log('❌ [AuthStore] No stored credentials')
+        set({ isLoading: false, isAuthenticated: false })
       },
 
       // Get Google OAuth URL
@@ -238,7 +248,33 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         sessionToken: state.sessionToken,
         user: state.user,
+        isAuthenticated: state.isAuthenticated, // Also persist this!
       }),
+      onRehydrateStorage: () => (state) => {
+        // Called when store is rehydrated from localStorage
+        if (state) {
+          console.log('🔄 [AuthStore] Rehydrated from storage')
+          console.log('🔄 [AuthStore] Has user:', !!state.user)
+          console.log('🔄 [AuthStore] Has token:', !!state.sessionToken)
+          
+          // If we have user and token, set authenticated immediately
+          if (state.user && state.sessionToken) {
+            state.isAuthenticated = true
+            state.isLoading = false
+            apiService.setAuthToken(state.sessionToken)
+            
+            // IMPORTANT: Also sync to legacy localStorage keys for MainDashboard
+            localStorage.setItem('authToken', state.sessionToken)
+            localStorage.setItem('user', JSON.stringify(state.user))
+            
+            console.log('✅ [AuthStore] Auto-authenticated from storage (synced to authToken)')
+          } else {
+            state.isLoading = false
+          }
+          
+          state._hasHydrated = true
+        }
+      },
     }
   )
 )

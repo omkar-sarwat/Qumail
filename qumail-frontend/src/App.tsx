@@ -1,79 +1,94 @@
-import React from 'react'
+import React, { useState, Suspense, lazy } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { Toaster } from 'react-hot-toast'
 import { LoginScreen } from './components/auth/LoginScreen'
 import { OAuthCallback } from './components/auth/OAuthCallback'
-import { MainDashboard } from './components/dashboard/MainDashboard'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { TitleBar } from './components/TitleBar'
+import SplashScreen from './components/SplashScreen'
+import ErrorBoundary from './components/ErrorBoundary'
+import OfflineIndicator from './components/OfflineIndicator'
+
+// Lazy load heavy components for better initial load
+const MainDashboard = lazy(() => import('./components/dashboard/MainDashboard').then(m => ({ default: m.MainDashboard })))
+
+// Loading fallback for lazy components
+const LazyLoadFallback: React.FC = () => (
+  <div className="min-h-full bg-gray-50 flex items-center justify-center">
+    <div className="text-center">
+      <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+      <p className="text-gray-500 text-sm">Loading...</p>
+    </div>
+  </div>
+)
 
 // Inner component that uses auth context
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth()
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center mb-4 mx-auto">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            >
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-            </motion.div>
-          </div>
-          <h2 className="text-xl font-semibold text-white mb-2">
-            Initializing QuMail
-          </h2>
-          <p className="text-gray-300">
-            Checking quantum security status...
-          </p>
-        </div>
-      </div>
-    )
-  }
+  const [showSplash, setShowSplash] = useState(true)
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col">
-      {window.electronAPI && <TitleBar />}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        <Routes>
-        <Route 
-          path="/auth/callback" 
-          element={<OAuthCallback onAuthComplete={() => {
-            // OAuthCallback component will use the auth context directly
-            // No need to handle it here
-          }} />} 
-        />
-        <Route 
-          path="/dashboard" 
-          element={
-            isAuthenticated ? (
-              <MainDashboard />
-            ) : (
-              <Navigate to="/" replace />
-            )
-          } 
-        />
-        <Route 
-          path="/" 
-          element={
-            isAuthenticated ? (
-              <Navigate to="/dashboard" replace />
-            ) : (
-              <LoginScreen />
-            )
-          } 
-        />
-        <Route 
-          path="*" 
-          element={<Navigate to="/" replace />} 
-        />
-      </Routes>
+    <div className="h-screen overflow-hidden flex flex-col bg-white">
+      {/* Offline/slow connection indicator */}
+      <OfflineIndicator />
+      
+      {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
+      
+      {/* Hide content completely during splash */}
+      <div className={`flex-1 flex flex-col overflow-hidden transition-opacity duration-200 ${showSplash ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        {window.electronAPI && <TitleBar />}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {isLoading && !showSplash ? (
+            <div className="min-h-full bg-gray-50 flex items-center justify-center">
+              <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                  Initializing QuMail
+                </h2>
+                <p className="text-gray-500">
+                  Checking quantum security status...
+                </p>
+              </div>
+            </div>
+          ) : (
+          <Suspense fallback={<LazyLoadFallback />}>
+            <Routes>
+              <Route
+                path="/auth/callback"
+                element={<OAuthCallback onAuthComplete={() => {
+                  // OAuthCallback component will use the auth context directly
+                  // No need to handle it here
+                }} />}
+              />
+              <Route
+                path="/dashboard"
+                element={
+                  isAuthenticated ? (
+                    <MainDashboard />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/"
+                element={
+                  isAuthenticated ? (
+                    <Navigate to="/dashboard" replace />
+                  ) : (
+                    <LoginScreen />
+                  )
+                }
+              />
+              <Route
+                path="*"
+                element={<Navigate to="/" replace />}
+              />
+            </Routes>
+          </Suspense>
+        )}
+
+        </div>
+      </div>
 
       {/* Toast notifications */}
       <Toaster
@@ -104,18 +119,19 @@ const AppContent: React.FC = () => {
           },
         }}
       />
-      </div>
     </div>
   )
 }
 
 const App: React.FC = () => {
   return (
-    <Router>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </Router>
+    </ErrorBoundary>
   )
 }
 

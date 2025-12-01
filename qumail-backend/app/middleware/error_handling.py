@@ -348,7 +348,7 @@ class SecurityMiddleware:
 class RateLimitMiddleware:
     """Basic rate limiting middleware"""
     
-    def __init__(self, app, requests_per_minute: int = 60):
+    def __init__(self, app, requests_per_minute: int = 300):
         self.app = app
         self.requests_per_minute = requests_per_minute
         self.client_requests = {}  # In production, use Redis
@@ -361,13 +361,15 @@ class RateLimitMiddleware:
             # Check rate limit
             if await self._is_rate_limited(client_ip):
                 # Send rate limit response
+                request_id = str(uuid.uuid4())
                 response = JSONResponse(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     content=ErrorResponse(
                         error="Rate Limit Exceeded",
                         detail="Too many requests from this IP address",
                         error_code="RATE_LIMITED",
-                        timestamp=datetime.utcnow().isoformat()
+                        timestamp=datetime.utcnow().isoformat(),
+                        request_id=request_id
                     ).dict()
                 )
                 await response(scope, receive, send)

@@ -79,6 +79,7 @@ interface NewComposeEmailModalProps {
   onClose: () => void
   onSend: (summary: QuantumSendSummary) => void
   replyTo?: Email | null
+  keyManagerLoggedIn?: boolean
 }
 
 export interface QuantumSendSummary {
@@ -176,7 +177,8 @@ export const NewComposeEmailModal: React.FC<NewComposeEmailModalProps> = ({
   isOpen,
   onClose,
   onSend,
-  replyTo
+  replyTo,
+  keyManagerLoggedIn = false
 }) => {
   // ============================================
   // STATE MANAGEMENT
@@ -186,7 +188,7 @@ export const NewComposeEmailModal: React.FC<NewComposeEmailModalProps> = ({
   const [cc, setCc] = useState('')
   const [bcc, setBcc] = useState('')
   const [subject, setSubject] = useState('')
-  const [securityLevel, setSecurityLevel] = useState<1 | 2 | 3 | 4>(1)
+  const [securityLevel, setSecurityLevel] = useState<1 | 2 | 3 | 4>(keyManagerLoggedIn ? 1 : 4)
   const [showCcBcc, setShowCcBcc] = useState(false)
   const [showSecurityDropdown, setShowSecurityDropdown] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -255,11 +257,12 @@ export const NewComposeEmailModal: React.FC<NewComposeEmailModalProps> = ({
   // ============================================
   
   const [contacts, setContacts] = useState<Contact[]>([
-    { email: 'alice@example.com', name: 'Alice Johnson' },
-    { email: 'bob@example.com', name: 'Bob Smith' },
-    { email: 'carol@example.com', name: 'Carol Williams' },
-    { email: 'david@example.com', name: 'David Brown' },
-    { email: 'eve@example.com', name: 'Eve Martinez' }
+    { email: 'codewithpjshahane@gmail.com', name: 'PJ Shahane' },
+    { email: 'sarswatomkar8625@gmail.com', name: 'Omkar Sarswat' },
+    { email: 'mandhanivaibhav09@gmail.com', name: 'Vaibhav Mandhani' },
+    { email: 'visha7841@gmail.com', name: 'Visha' },
+    { email: 'sasemeera66@gmail.com', name: 'Sameera' },
+    { email: 'sainilewar48@gmail.com', name: 'Saini Lewar' }
   ])
 
   // ============================================
@@ -300,6 +303,13 @@ export const NewComposeEmailModal: React.FC<NewComposeEmailModalProps> = ({
       resetForm()
     }
   }, [replyTo, editor])
+
+  // Reset security level when key manager login status changes
+  useEffect(() => {
+    if (!keyManagerLoggedIn && securityLevel !== 4) {
+      setSecurityLevel(4)
+    }
+  }, [keyManagerLoggedIn])
 
   // Focus editor when modal opens
   useEffect(() => {
@@ -464,6 +474,18 @@ export const NewComposeEmailModal: React.FC<NewComposeEmailModalProps> = ({
       .toUpperCase()
       .substring(0, 2)
   }
+
+  // Filter contacts based on user input - only show matches when typing
+  const filteredContacts = to.trim() ? contacts.filter(contact => {
+    const searchTerm = to.toLowerCase().trim()
+    const nameInitials = getContactInitials(contact.name).toLowerCase()
+    const emailInitials = contact.email.split('@')[0].substring(0, 2).toLowerCase()
+    
+    return contact.email.toLowerCase().includes(searchTerm) ||
+           contact.name.toLowerCase().includes(searchTerm) ||
+           nameInitials.includes(searchTerm) ||
+           emailInitials.includes(searchTerm)
+  }) : []
 
   const getContactColor = (email: string): string => {
     const colors = [
@@ -909,31 +931,38 @@ export const NewComposeEmailModal: React.FC<NewComposeEmailModalProps> = ({
                       onChange={(e) => {
                         const value = e.target.value
                         setTo(value)
+                        // Show contacts only when user is typing (not on initial focus)
+                        setShowContacts(value.trim().length > 0)
                         // Add to contacts when user finishes typing (has @ and .)
                         if (value.includes('@') && value.includes('.')) {
                           addEmailToContacts(value)
                         }
                       }}
-                      onFocus={() => setShowContacts(true)}
+                      onFocus={() => {
+                        // Only show contacts if there's already text
+                        if (to.trim().length > 0) {
+                          setShowContacts(true)
+                        }
+                      }}
                       onBlur={() => {
                         // Add on blur if valid
                         if (to) addEmailToContacts(to)
                       }}
-                      placeholder="Recipients (e.g., alice@example.com, bob@example.com)"
+                      placeholder="Recipients (e.g., codewithpjshahane@gmail.com)"
                       className="w-full px-3 py-2 bg-transparent text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none"
                       disabled={isSending}
                     />
                     
                     {/* Contacts Dropdown */}
                     <AnimatePresence>
-                      {showContacts && contacts.length > 0 && (
+                      {showContacts && filteredContacts.length > 0 && (
                         <motion.div
                           initial={{ opacity: 0, y: -10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
                           className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-10 max-h-64 overflow-y-auto"
                         >
-                          {contacts.map((contact, index) => (
+                          {filteredContacts.map((contact, index) => (
                             <button
                               key={index}
                               onClick={() => selectContact(contact)}
@@ -1218,35 +1247,61 @@ export const NewComposeEmailModal: React.FC<NewComposeEmailModalProps> = ({
                           exit={{ opacity: 0, y: -10 }}
                           className="absolute bottom-full left-0 mb-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden z-10"
                         >
-                          {SECURITY_LEVELS.map((level) => (
-                            <button
-                              key={level.value}
-                              onClick={() => {
-                                setSecurityLevel(level.value)
-                                setShowSecurityDropdown(false)
-                              }}
-                              className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b border-gray-100 dark:border-gray-800 last:border-b-0 ${
-                                securityLevel === level.value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                              }`}
-                            >
-                              <div className="flex items-start space-x-3">
-                                <div className={`p-2 rounded-lg bg-gradient-to-br ${level.gradient} flex-shrink-0`}>
-                                  <level.icon className="w-4 h-4 text-white" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                                    {level.name}
-                                  </p>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    {level.description}
-                                  </p>
-                                </div>
-                                {securityLevel === level.value && (
-                                  <Check className="w-5 h-5 text-blue-600 flex-shrink-0" />
-                                )}
+                          {/* Show login message if not logged in to Key Manager */}
+                          {!keyManagerLoggedIn && (
+                            <div className="px-4 py-3 bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800">
+                              <div className="flex items-center space-x-2">
+                                <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                                <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                                  Login to Key Manager to access Levels 1-3
+                                </p>
                               </div>
-                            </button>
-                          ))}
+                            </div>
+                          )}
+                          {SECURITY_LEVELS.map((level) => {
+                            const isRestricted = !keyManagerLoggedIn && level.value !== 4
+                            return (
+                              <button
+                                key={level.value}
+                                onClick={() => {
+                                  if (!isRestricted) {
+                                    setSecurityLevel(level.value)
+                                    setShowSecurityDropdown(false)
+                                  }
+                                }}
+                                disabled={isRestricted}
+                                className={`w-full px-4 py-3 text-left transition-colors border-b border-gray-100 dark:border-gray-800 last:border-b-0 ${
+                                  isRestricted 
+                                    ? 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-900' 
+                                    : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+                                } ${
+                                  securityLevel === level.value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                                }`}
+                              >
+                                <div className="flex items-start space-x-3">
+                                  <div className={`p-2 rounded-lg bg-gradient-to-br ${level.gradient} flex-shrink-0 ${isRestricted ? 'opacity-50' : ''}`}>
+                                    <level.icon className="w-4 h-4 text-white" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center space-x-2">
+                                      <p className={`text-sm font-semibold ${isRestricted ? 'text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-white'}`}>
+                                        {level.name}
+                                      </p>
+                                      {isRestricted && (
+                                        <Lock className="w-3 h-3 text-gray-400 dark:text-gray-500" />
+                                      )}
+                                    </div>
+                                    <p className={`text-xs mt-1 ${isRestricted ? 'text-gray-400 dark:text-gray-500' : 'text-gray-500 dark:text-gray-400'}`}>
+                                      {level.description}
+                                    </p>
+                                  </div>
+                                  {securityLevel === level.value && !isRestricted && (
+                                    <Check className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
                         </motion.div>
                       )}
                     </AnimatePresence>

@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 from .config import get_settings
 from .mongo_database import connect_to_mongo, close_mongo_connection, get_database, init_collections
 from .api.auth import router as auth_router
+from .api.auth_2fa import router as auth_2fa_router  # TOTP 2FA authentication
+from .api.decrypt_auth import router as decrypt_auth_router  # Google Authenticator for decrypt
 from .api.gmail_routes import router as gmail_router
 from .api.encryption_routes import router as encryption_router
 from .api.quantum_encryption_routes import router as quantum_encryption_router
@@ -328,6 +330,8 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Include routers
 app.include_router(auth_router)
+app.include_router(auth_2fa_router)  # TOTP 2FA authentication routes
+app.include_router(decrypt_auth_router)  # Google Authenticator for decrypt verification
 app.include_router(gmail_router)
 app.include_router(encryption_router)
 app.include_router(quantum_encryption_router)  # New quantum encryption API

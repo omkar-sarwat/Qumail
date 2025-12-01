@@ -2,7 +2,8 @@ import base64
 import logging
 import secrets
 import hashlib
-from typing import Dict, Any, Optional
+import json
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from cryptography.hazmat.primitives import hashes, serialization, hmac
 from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
@@ -63,6 +64,8 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
         logger.info(f"  Key Model: Synchronized keys (same key on KM1 and KM2)")
         logger.info("="*80)
         
+        key_fragments: List[str] = []
+
         # For testing only - use provided key
         if qkd_key is not None:
             logger.warning("Using pre-provided test quantum key (NOT for production)")
@@ -73,6 +76,7 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
                 logger.warning(f"Test key too short: {len(quantum_key_material)} bytes, need {total_key_bytes} bytes")
                 quantum_key_material = quantum_key_material * (total_key_bytes // len(quantum_key_material) + 1)
             quantum_key_material = quantum_key_material[:total_key_bytes]
+            key_fragments.append(key_id)
         
         else:
             # PRODUCTION PATH: Retrieve quantum key from KM1 using direct API calls
@@ -86,43 +90,91 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
             # Use optimized KM client to request encryption key from KME1
             logger.info("Requesting encryption key from KME1 via optimized client...")
             
-            # Request 1 key of required size from KME1 for peer SAE (KME2)
             slave_sae_id = "c565d5aa-8670-4446-8471-b0e53e315d2a"  # KME2's SAE ID
             
-            # Round up to nearest 256 bits to ensure KME compatibility
-            required_bits = total_key_bytes * 8
-            request_size = ((required_bits + 255) // 256) * 256
-            if request_size < 256:
-                request_size = 256
-                
-            logger.info(f"Requesting key size: {request_size} bits (needed {required_bits} bits)")
+            # The Next Door Key Simulator returns fixed 32-byte (256-bit) keys
+            # So we need to request enough keys to cover the total required bytes
+            key_chunk_size = 32  # 256 bits = 32 bytes per key
+            keys_needed_initial = (total_key_bytes + key_chunk_size - 1) // key_chunk_size
+            
+            logger.info(f"Total key bytes needed: {total_key_bytes}")
+            logger.info(f"Key chunk size: {key_chunk_size} bytes (256 bits)")
+            logger.info(f"Keys needed: {keys_needed_initial}")
             
             km1_keys = await km1_client.request_enc_keys(
                 slave_sae_id=slave_sae_id,
-                number=1,
-                size=request_size
+                number=keys_needed_initial,
+                size=256  # Each key is 256 bits (32 bytes)
             )
-            
-            logger.info(f"✓ Got {len(km1_keys)} encryption keys from KME1")
-            if km1_keys:
-                logger.info(f"  - Key ID: {km1_keys[0]['key_ID']}")
-                logger.info(f"  - Key length: {len(km1_keys[0]['key'])} base64 chars")
             
             if not km1_keys:
                 raise Level1SecurityError("No quantum keys available on KM1. Available: 0, Required: 1")
-            
-            key_id = km1_keys[0]['key_ID']
-            quantum_key_material = base64.b64decode(km1_keys[0]['key'])
-            
-            logger.info(f"✓ ETSI QKD 014: Encryption key retrieved from KM1")
-            logger.info(f"  - Key ID: {key_id}")
-            logger.info(f"  - Key Size: {len(quantum_key_material)} bytes ({len(quantum_key_material) * 8} bits)")
+
+            quantum_key_chunks: List[bytes] = []
+            fragment_records: List[Dict[str, Any]] = []
+
+            def _append_key_batch(keys_batch):
+                appended = 0
+                for key_entry in keys_batch:
+                    raw_chunk = base64.b64decode(key_entry['key'])
+                    if not raw_chunk:
+                        logger.warning("Received empty key chunk from KM1 for ID %s", key_entry.get('key_ID'))
+                        continue
+                    quantum_key_chunks.append(raw_chunk)
+                    fragment_records.append({
+                        "key_id": key_entry['key_ID'],
+                        "size_bytes": len(raw_chunk)
+                    })
+                    appended += len(raw_chunk)
+                    logger.info(
+                        "  - Fragment %s | ID=%s | %s bytes",
+                        len(fragment_records),
+                        key_entry['key_ID'],
+                        len(raw_chunk)
+                    )
+                return appended
+
+            logger.info(f"✓ Got {len(km1_keys)} encryption key(s) from KME1 (initial batch)")
+            initial_bytes = _append_key_batch(km1_keys)
+            if not initial_bytes:
+                raise Level1SecurityError("KM1 returned empty key material for OTP encryption")
+
+            key_id = fragment_records[0]["key_id"]
+            chunk_size_bytes = fragment_records[0]["size_bytes"] or 32
+
+            while sum(len(chunk) for chunk in quantum_key_chunks) < total_key_bytes:
+                remaining_bytes = total_key_bytes - sum(len(chunk) for chunk in quantum_key_chunks)
+                keys_needed = max(1, (remaining_bytes + key_chunk_size - 1) // key_chunk_size)
+                logger.info(
+                    "Requesting %s additional key fragment(s) to cover remaining %s bytes",
+                    keys_needed,
+                    remaining_bytes
+                )
+                additional_keys = await km1_client.request_enc_keys(
+                    slave_sae_id=slave_sae_id,
+                    number=keys_needed,
+                    size=256  # Each key is 256 bits (32 bytes)
+                )
+                if not additional_keys:
+                    break
+                _append_key_batch(additional_keys)
+                if fragment_records and fragment_records[-1]["size_bytes"]:
+                    chunk_size_bytes = fragment_records[-1]["size_bytes"]
+
+            combined_material = b"".join(quantum_key_chunks)
+            if len(combined_material) < total_key_bytes:
+                raise Level1SecurityError(
+                    f"KM1 returned insufficient key material: {len(combined_material)} bytes, need {total_key_bytes} bytes"
+                )
+
+            quantum_key_material = combined_material[:total_key_bytes]
+            logger.info(f"✓ ETSI QKD 014: Aggregated {len(fragment_records)} fragment(s) from KM1")
+            logger.info(f"  - Primary Key ID: {key_id}")
+            logger.info(f"  - Combined Key Size: {len(quantum_key_material)} bytes ({len(quantum_key_material) * 8} bits)")
             logger.info(f"  - SAE1 ID: 25840139-0dd4-49ae-ba1e-b86731601803")
             logger.info(f"  - SAE2 ID: c565d5aa-8670-4446-8471-b0e53e315d2a")
             logger.info(f"  - Synchronized: Key broadcast to KM2")
-            
-            # Trim to required size
-            quantum_key_material = quantum_key_material[:total_key_bytes]
+            key_fragments = [fragment["key_id"] for fragment in fragment_records]
         
         # SPLIT KEY ARCHITECTURE
         # First L bytes for OTP, last 32 bytes for HMAC
@@ -175,6 +227,8 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
                 "algorithm": "OTP-QKD-ETSI-014",
                 "key_id": key_id,
                 "key_size": len(quantum_key_material),
+                "key_fragments": key_fragments,
+                "key_fragment_count": len(key_fragments),
                 "required_size": len(plaintext),
                 "auth_tag": auth_tag_b64,  # Added for Integrity Gate verification
                 "quantum_enhanced": True,
@@ -221,26 +275,94 @@ async def decrypt_otp(encrypted_content: str, user_email: str, metadata: Dict[st
         logger.info(f"  Protocol: ETSI GS QKD 014 REST API")
         logger.info(f"  Key Model: Synchronized keys (same key sender got from KM1)")
         logger.info("="*80)
+        
+        # DEBUG: Log all metadata received
+        logger.info("DEBUG: Full metadata received:")
+        for key, value in metadata.items():
+            logger.info(f"  {key}: {value} (type: {type(value).__name__})")
 
-        # Extract key ID from metadata
+        # Extract key identifiers from metadata
         key_id = metadata.get("key_id")
         flow_id = metadata.get("flow_id")
-        required_size = (
+        auth_tag_b64 = metadata.get("auth_tag")  # HMAC Tag
+        key_fragments_meta = metadata.get("key_fragments")
+        
+        # Decode encrypted content FIRST to determine required size
+        logger.info("Decoding encrypted content from Base64...")
+        encrypted_bytes = base64.b64decode(encrypted_content)
+        
+        # Calculate required_size from encrypted payload (OTP: ciphertext length = plaintext length)
+        # The encrypted_bytes length IS the plaintext length for OTP
+        required_size = len(encrypted_bytes)
+        
+        # Override with metadata if provided (should match)
+        metadata_required_size = (
             metadata.get("required_size")
             or metadata.get("plaintext_size")
             or metadata.get("original_size")
         )
-        auth_tag_b64 = metadata.get("auth_tag") # HMAC Tag
+        if metadata_required_size:
+            metadata_required_size = int(metadata_required_size)
+            if metadata_required_size != required_size:
+                logger.warning(
+                    "Metadata required_size (%d) differs from encrypted content length (%d) - using encrypted content length",
+                    metadata_required_size,
+                    required_size
+                )
         
+        logger.info(f"  Encrypted: {len(encrypted_bytes)} bytes, first 32 bytes: {encrypted_bytes[:32].hex()}")
+        logger.info(f"  Required plaintext size (from encrypted content): {required_size} bytes")
+
+        # Parse key_fragments in various formats
+        requested_key_ids: List[str] = []
+        logger.info(f"DEBUG: key_fragments_meta type = {type(key_fragments_meta)}, value = {key_fragments_meta}")
+        
+        if isinstance(key_fragments_meta, list):
+            # Handle list of dicts (fragment_records) or list of strings (key IDs)
+            for item in key_fragments_meta:
+                if isinstance(item, dict):
+                    # Fragment record format: {"key_id": "...", "size_bytes": ...}
+                    kid = item.get("key_id") or item.get("key_ID")
+                    if kid:
+                        requested_key_ids.append(str(kid))
+                elif item:
+                    requested_key_ids.append(str(item))
+        elif isinstance(key_fragments_meta, str):
+            parsed_ids: List[str] = []
+            try:
+                decoded = json.loads(key_fragments_meta)
+                if isinstance(decoded, list):
+                    for item in decoded:
+                        if isinstance(item, dict):
+                            kid = item.get("key_id") or item.get("key_ID")
+                            if kid:
+                                parsed_ids.append(str(kid))
+                        elif item:
+                            parsed_ids.append(str(item))
+            except (json.JSONDecodeError, TypeError):
+                parsed_ids = [seg.strip() for seg in key_fragments_meta.split(',') if seg.strip()]
+            requested_key_ids = parsed_ids
+        elif isinstance(key_fragments_meta, dict):
+            # Handle dict format if accidentally stored
+            for kid in key_fragments_meta.keys():
+                requested_key_ids.append(str(kid))
+
+        if not requested_key_ids and key_id:
+            requested_key_ids = [key_id]
+            logger.warning(f"No key_fragments found, falling back to single key_id: {key_id}")
+
         logger.info("Key identifier:")
-        logger.info(f"  Key ID: {key_id}")
+        logger.info(f"  Primary Key ID: {key_id}")
+        logger.info(f"  Key Fragment IDs: {requested_key_ids}")
+        logger.info(f"  Key Fragment Count: {len(requested_key_ids)}")
         logger.info(f"  Flow ID: {flow_id}")
         logger.info(f"  Required Size: {required_size} bytes")
+        logger.info(f"  Total key bytes needed: {required_size + 32} (OTP + HMAC)")
         logger.info(f"  ETSI QKD 014: Receiver will get SAME key from KM2")
 
-        if not key_id:
-            logger.error("ERROR - Missing key ID in decryption metadata")
-            raise Level1SecurityError("Missing key ID in metadata - cannot decrypt")
+        if not requested_key_ids:
+            logger.error("ERROR - Missing key identifiers in decryption metadata")
+            raise Level1SecurityError("Missing key identifiers in metadata - cannot decrypt")
 
         # PRODUCTION PATH: Prefer retrieving quantum key from KME2, fall back to KM1 shared pool if needed
         logger.info("KME2 PATH: Attempting to retrieve decryption key from KME2 (receiver-side cache)...")
@@ -254,73 +376,95 @@ async def decrypt_otp(encrypted_content: str, user_email: str, metadata: Dict[st
             else:
                 retrieved_keys = await km2_client.request_dec_keys(
                     master_sae_id=KM1_MASTER_SAE_ID,
-                    key_ids=[key_id]
+                    key_ids=requested_key_ids
                 )
                 if retrieved_keys:
-                    logger.info(f"KME2 PATH: Successfully retrieved key {key_id} from KME2")
+                    logger.info(
+                        "KME2 PATH: Retrieved %s/%s key fragment(s) from KME2",
+                        len(retrieved_keys),
+                        len(requested_key_ids)
+                    )
         except AuthenticationError as auth_error:
-            logger.error(f"KME2 PATH: Authentication failed retrieving key {key_id}: {auth_error}")
+            logger.error(f"KME2 PATH: Authentication failed retrieving key fragment(s): {auth_error}")
         except KMConnectionError as conn_error:
-            logger.error(f"KME2 PATH: Connection error retrieving key {key_id}: {conn_error}")
+            logger.error(f"KME2 PATH: Connection error retrieving key fragment(s): {conn_error}")
         except SecurityError as sec_error:
-            logger.warning(f"KME2 PATH: Security error retrieving key {key_id}: {sec_error}")
+            logger.warning(f"KME2 PATH: Security error retrieving key fragment(s): {sec_error}")
         except Exception as e:
-            logger.error(f"KME2 PATH: Unexpected exception retrieving key {key_id}: {e}")
+            logger.error(f"KME2 PATH: Unexpected exception retrieving key fragment(s): {e}")
         
-        if not retrieved_keys:
-            logger.info("FALLBACK PATH: KME2 retrieval failed or returned empty. Checking KM1 shared pool...")
+        if not retrieved_keys or len(retrieved_keys) < len(requested_key_ids):
+            logger.info("FALLBACK PATH: KME2 retrieval incomplete. Checking KM1 shared pool...")
             try:
                 if km1_client is None:
                     raise Level1SecurityError("KM1 client not initialized; cannot access shared pool")
                 retrieved_keys = await km1_client.request_dec_keys(
                     master_sae_id=KM1_MASTER_SAE_ID,
-                    key_ids=[key_id]
+                    key_ids=requested_key_ids
                 )
                 if retrieved_keys:
-                    logger.info(f"SHARED POOL: Successfully retrieved key {key_id} from KM1 shared pool")
+                    logger.info(
+                        "SHARED POOL: Retrieved %s/%s key fragment(s) from KM1",
+                        len(retrieved_keys),
+                        len(requested_key_ids)
+                    )
             except AuthenticationError as auth_error:
-                logger.error(f"SHARED POOL: Authentication failed retrieving key {key_id}: {auth_error}")
+                logger.error(f"SHARED POOL: Authentication failed retrieving key fragment(s): {auth_error}")
                 raise Level1SecurityError("KME authentication failed while retrieving shared key")
             except KMConnectionError as conn_error:
-                logger.error(f"SHARED POOL: Connection error retrieving key {key_id}: {conn_error}")
+                logger.error(f"SHARED POOL: Connection error retrieving key fragment(s): {conn_error}")
                 raise Level1SecurityError("Unable to reach KM shared pool for key retrieval")
             except SecurityError as sec_error:
-                logger.error(f"SHARED POOL: Security error retrieving key {key_id}: {sec_error}")
-                raise Level1SecurityError(f"Failed to retrieve quantum key {key_id}: {sec_error}")
+                logger.error(f"SHARED POOL: Security error retrieving key fragment(s): {sec_error}")
+                raise Level1SecurityError("Failed to retrieve quantum key fragments from shared pool")
             except Exception as e:
-                logger.error(f"SHARED POOL: Unexpected exception retrieving key {key_id}: {e}")
-                raise Level1SecurityError(f"Failed to retrieve quantum key {key_id} from shared pool: {e}")
+                logger.error(f"SHARED POOL: Unexpected exception retrieving key fragment(s): {e}")
+                raise Level1SecurityError(f"Failed to retrieve quantum key fragments from shared pool: {e}")
         
         if not retrieved_keys:
-            logger.error(f"KME RETRIEVAL: No KMEs returned key {key_id}")
-            raise Level1SecurityError(f"Key {key_id} not found on KME2 or KM1 shared pool")
+            logger.error("KME RETRIEVAL: No KMEs returned the requested key fragments")
+            raise Level1SecurityError("Quantum key fragments not found on KME2 or KM1 shared pool")
         
-        quantum_key_material = base64.b64decode(retrieved_keys[0]['key'])
+        key_lookup = {}
+        for entry in retrieved_keys:
+            kid = str(entry.get('key_ID'))
+            if not kid:
+                continue
+            try:
+                key_lookup[kid] = base64.b64decode(entry.get('key', ''))
+            except Exception:
+                logger.warning("Failed to decode key fragment %s", kid, exc_info=True)
+
+        missing_fragments = [kid for kid in requested_key_ids if kid not in key_lookup or not key_lookup[kid]]
+        if missing_fragments:
+            raise Level1SecurityError(f"Missing quantum key fragment(s): {missing_fragments}")
+
+        quantum_key_material = b"".join(key_lookup[kid] for kid in requested_key_ids)
         
-        logger.info("✓ SHARED POOL: Decryption key retrieved from KM1 shared pool")
-        logger.info(f"  - Key Size: {len(quantum_key_material)} bytes")
+        logger.info("✓ SHARED POOL: Decryption key fragments assembled from KM shared pool")
+        logger.info(f"  - Fragment Count: {len(requested_key_ids)}")
+        logger.info(f"  - Combined Key Size: {len(quantum_key_material)} bytes")
         logger.info(f"  - Shared Pool: YES (same key from KM1 as encryption)")
         logger.info(f"  - Status: USED (will be marked consumed in shared pool)")
         logger.info(f"  - First 16 bytes: {quantum_key_material[:16].hex()}")
 
-        # Decode encrypted content
-        logger.info("Decoding encrypted content from Base64...")
-        encrypted_bytes = base64.b64decode(encrypted_content)
-        if required_size is None:
-            required_size = len(encrypted_bytes)
-            logger.warning(
-                "Missing required_size in metadata; defaulting to encrypted payload length (%s bytes)",
-                required_size
-            )
-        else:
-            required_size = int(required_size)
-        logger.info(f"  Encrypted: {len(encrypted_bytes)} bytes, first 32 bytes: {encrypted_bytes[:32].hex()}")
+        # encrypted_bytes already decoded at start of function
+        # required_size already calculated from encrypted content length
 
         # Verify key size matches required size (L + 32)
         total_required_size = required_size + 32
         if len(quantum_key_material) < total_required_size:
             logger.error(f"  ERROR: Key too short! Got {len(quantum_key_material)} bytes, need {total_required_size} bytes")
-            raise Level1SecurityError(f"Retrieved key is too short: {len(quantum_key_material)} bytes, need {total_required_size} bytes")
+            logger.error(f"  This may be due to:")
+            logger.error(f"    1. Email was encrypted before multi-fragment key fix")
+            logger.error(f"    2. Key fragments were not properly stored in metadata")
+            logger.error(f"    3. KME server restart caused key loss (in-memory storage)")
+            logger.error(f"  Requested key IDs: {requested_key_ids}")
+            logger.error(f"  Retrieved key IDs: {list(key_lookup.keys())}")
+            raise Level1SecurityError(
+                f"Retrieved key is too short: {len(quantum_key_material)} bytes, need {total_required_size} bytes. "
+                f"This email may have been encrypted with an older version or the quantum keys have been lost."
+            )
         
         # Use the exact required size
         quantum_key_material = quantum_key_material[:total_required_size]

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect } from 'react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
 import { apiService } from '../../services/api'
@@ -10,12 +10,18 @@ import { EmailViewer } from './EmailViewer'
 import QuantumDashboard from './QuantumDashboard'
 import { SettingsPanel } from './SettingsPanel'
 import { NewComposeEmailModal, QuantumSendSummary } from '../compose/NewComposeEmailModal'
+import { KeyVaultLogin, KeyManagerDashboard } from '../keymanager'
 
-type DashboardView = 'email' | 'quantum'
+// Auto-refresh interval in milliseconds (30 seconds)
+const AUTO_REFRESH_INTERVAL = 30000
+
+type DashboardView = 'email' | 'quantum' | 'keymanager'
 
 interface DashboardEmail extends Record<string, any> {
   id: string
+  email_id?: string
   timestamp: string
+  fullDate?: string
   subject?: string
   snippet?: string
   body?: string
@@ -30,6 +36,10 @@ interface DashboardEmail extends Record<string, any> {
   sender?: string
   sender_name?: string
   sender_email?: string
+  // CamelCase versions for EmailViewer component
+  senderName?: string
+  senderEmail?: string
+  senderAvatar?: string
   from?: string
   from_name?: string
   from_email?: string
@@ -37,6 +47,8 @@ interface DashboardEmail extends Record<string, any> {
   recipient?: string
   encrypted?: boolean
   requires_decryption?: boolean
+  isDecrypted?: boolean
+  decrypted_body?: string
   decrypt_endpoint?: string
   flowId?: string
   flow_id?: string
@@ -53,6 +65,7 @@ interface DashboardEmail extends Record<string, any> {
   is_read?: boolean
   isStarred?: boolean
   is_starred?: boolean
+  tags?: string[]
   security_info?: {
     level?: number
     algorithm?: string
@@ -79,17 +92,63 @@ const generateId = () => {
 
 export const MainDashboard: React.FC = () => {
   const { user, isAuthenticated } = useAuth()
+  const initialLoadRef = useRef(true)
+  const [isReady, setIsReady] = useState(false)
 
   const [currentView, setCurrentView] = useState<DashboardView>('email')
   const [activeFolder, setActiveFolder] = useState('inbox')
   const [emails, setEmails] = useState<DashboardEmail[]>([])
   const [selectedEmail, setSelectedEmail] = useState<DashboardEmail | null>(null)
   const [isLoadingEmails, setIsLoadingEmails] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [emailCounts, setEmailCounts] = useState(initialCounts)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isComposeOpen, setIsComposeOpen] = useState(false)
   const [replyToEmail, setReplyToEmail] = useState<DashboardEmail | null>(null)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [selectedSecurityLevels, setSelectedSecurityLevels] = useState<Set<number>>(new Set([1, 2, 3, 4]))
+
+  // Mark component as ready after first paint to prevent flickering
+  useLayoutEffect(() => {
+    if (initialLoadRef.current) {
+      initialLoadRef.current = false
+      // Use requestAnimationFrame to wait for paint
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsReady(true)
+        })
+      })
+    }
+  }, [])
+  
+  // Key Manager auth state
+  const [keyManagerAuth, setKeyManagerAuth] = useState<{
+    isLoggedIn: boolean
+    kmType: 'KM1' | 'KM2' | null
+    username: string | null
+  }>({
+    isLoggedIn: false,
+    kmType: null,
+    username: null,
+  })
+
+  const handleKeyManagerLogin = (kmType: 'KM1' | 'KM2', username: string) => {
+    setKeyManagerAuth({
+      isLoggedIn: true,
+      kmType,
+      username,
+    })
+  }
+
+  const handleKeyManagerLogout = () => {
+    setKeyManagerAuth({
+      isLoggedIn: false,
+      kmType: null,
+      username: null,
+    })
+    setCurrentView('email')
+  }
 
   const normalizeEmail = useCallback((raw: any): DashboardEmail => {
     if (!raw) {
@@ -152,13 +211,16 @@ export const MainDashboard: React.FC = () => {
       raw.requires_decryption ??
       raw.requiresDecryption ??
       Boolean(
-        (encryptedBody && encryptedBody.trim().length > 0) ||
+        !raw.isDecrypted && // If already decrypted, don't require decryption
+        (
+          (encryptedBody && encryptedBody.trim().length > 0) ||
           encryptionMetadata ||
           raw.encrypted ||
           looksQuantumBySubject ||
           looksQuantumByContent ||
           looksQuantumBySnippet ||
           hasQuantumSecurityFlag
+        )
       )
 
     const attachmentsRaw = Array.isArray(raw.attachments)
@@ -183,6 +245,23 @@ export const MainDashboard: React.FC = () => {
       encrypted_size: raw.encrypted_size ?? raw.encryptedSize ?? raw.security_info?.encrypted_size ?? 0,
     }
 
+    const tags: string[] = []
+    const hasEncryptedPayload = Boolean(encryptedBody && encryptedBody.trim().length > 0)
+
+    if (
+      securityLevel > 0 ||
+      looksQuantumBySubject ||
+      looksQuantumByContent ||
+      looksQuantumBySnippet ||
+      hasQuantumSecurityFlag ||
+      hasEncryptedPayload ||
+      requiresDecryption
+    ) {
+      tags.push('QUANTUM')
+    } else {
+      tags.push('STD')
+    }
+
     return {
       ...raw,
       id: resolvedId,
@@ -197,6 +276,13 @@ export const MainDashboard: React.FC = () => {
       body_encrypted: encryptedBody,
       encrypted_size: raw.encrypted_size ?? raw.encryptedSize ?? 0,
       timestamp,
+      // Format timestamp for display
+      fullDate: new Date(timestamp).toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      }),
       securityLevel,
       security_level: securityLevel,
       to: toAddress,
@@ -204,12 +290,17 @@ export const MainDashboard: React.FC = () => {
       sender: raw.sender ?? (finalSenderEmail ? `${senderName} <${finalSenderEmail}>` : senderName),
       sender_name: senderName,
       sender_email: finalSenderEmail ?? '',
+      // Add camelCase versions for EmailViewer component
+      senderName: senderName,
+      senderEmail: finalSenderEmail ?? '',
+      senderAvatar: senderName?.[0]?.toUpperCase() ?? '?',
       from: raw.from ?? (finalSenderEmail ? `${senderName} <${finalSenderEmail}>` : senderName),
       from_name: raw.from_name ?? senderName,
       from_email: raw.from_email ?? finalSenderEmail ?? '',
       receiver_email: raw.receiver_email ?? toAddress,
       encrypted: raw.encrypted ?? requiresDecryption,
       requires_decryption: requiresDecryption,
+      isDecrypted: raw.isDecrypted ?? false, // Preserve decrypted state
       decrypt_endpoint: raw.decrypt_endpoint ?? `/api/v1/emails/email/${resolvedId}/decrypt`,
       flowId,
       flow_id: flowId,
@@ -228,6 +319,7 @@ export const MainDashboard: React.FC = () => {
       isStarred: raw.isStarred ?? raw.is_starred ?? false,
       is_starred: raw.is_starred ?? raw.isStarred ?? false,
       security_info: securityInfo,
+      tags,
     }
   }, [])
 
@@ -275,7 +367,7 @@ export const MainDashboard: React.FC = () => {
           requires_decryption: details.requires_decryption,
           body_encrypted: details.body_encrypted ? `${details.body_encrypted.substring(0, 50)}...` : null
         })
-        
+
         const normalized = normalizeEmail({ ...fallback, ...details })
         console.log('🔄 Normalized email:', {
           id: normalized.id,
@@ -287,7 +379,7 @@ export const MainDashboard: React.FC = () => {
           body_encrypted: normalized.body_encrypted ? `${normalized.body_encrypted.substring(0, 50)}...` : null
         })
 
-  setSelectedEmail(normalized)
+        setSelectedEmail(normalized)
 
         setEmails((current) =>
           current.map((email) => (email.id === normalized.id ? normalized : email))
@@ -331,7 +423,7 @@ export const MainDashboard: React.FC = () => {
         console.error('Failed to fetch emails:', error)
         toast.error('Failed to load emails')
         setEmails([])
-    setSelectedEmail(null)
+        setSelectedEmail(null)
       } finally {
         setIsLoadingEmails(false)
       }
@@ -339,29 +431,110 @@ export const MainDashboard: React.FC = () => {
     [loadEmailDetails, normalizeEmail]
   )
 
+  // Silent refresh - fetches new emails without showing loading state or changing selection
+  const silentRefreshEmails = useCallback(
+    async (folder: string) => {
+      try {
+        const response = await apiService.getEmails({ folder: folder as any, maxResults: 50 })
+        const newEmails = Array.isArray(response.emails)
+          ? response.emails.map((email) => normalizeEmail(email))
+          : []
+
+        setEmails(prevEmails => {
+          // Preserve decrypted state for emails we already have
+          const emailMap = new Map(prevEmails.map(e => [e.id, e]))
+          
+          return newEmails.map(newEmail => {
+            const existingEmail = emailMap.get(newEmail.id)
+            if (existingEmail?.isDecrypted) {
+              // Keep the decrypted content
+              return {
+                ...newEmail,
+                body: existingEmail.body,
+                bodyHtml: existingEmail.bodyHtml,
+                bodyText: existingEmail.bodyText,
+                content: existingEmail.content,
+                requires_decryption: false,
+                isEncrypted: false,
+                isDecrypted: true,
+              }
+            }
+            return newEmail
+          })
+        })
+
+        // Check if there are new emails (not in previous list)
+        setEmails(prevEmails => {
+          const prevIds = new Set(prevEmails.map(e => e.id))
+          const hasNewEmails = newEmails.some(e => !prevIds.has(e.id))
+          
+          if (hasNewEmails) {
+            // Show a subtle notification for new emails
+            const newCount = newEmails.filter(e => !prevIds.has(e.id)).length
+            if (newCount > 0) {
+              toast.success(`${newCount} new email${newCount > 1 ? 's' : ''} received`, {
+                duration: 3000,
+                icon: '📬',
+              })
+            }
+          }
+          
+          return prevEmails // Don't change state here, already updated above
+        })
+
+        // Also refresh counts
+        fetchEmailCounts()
+      } catch (error) {
+        // Silent fail - don't show error for background refresh
+        console.error('Silent refresh failed:', error)
+      }
+    },
+    [normalizeEmail, fetchEmailCounts]
+  )
+
+  // Manual refresh handler with loading indicator
+  const handleManualRefresh = useCallback(async () => {
+    if (isRefreshing) return
+    setIsRefreshing(true)
+    try {
+      await silentRefreshEmails(activeFolder)
+      toast.success('Emails refreshed', { duration: 2000, icon: '✓' })
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [isRefreshing, silentRefreshEmails, activeFolder])
+
   const handleEmailSelect = useCallback(
     (email: DashboardEmail) => {
       setCurrentView('email')
-      setSelectedEmail(email)
       
+      // Check if we already have a decrypted version in the emails list
+      const existingEmail = emails.find(e => e.id === email.id)
+      const emailToSelect = existingEmail?.isDecrypted ? existingEmail : email
+      
+      setSelectedEmail(emailToSelect)
+
       // Immediately mark as read in local state to remove red dot
-      if (!email.isRead && !email.read) {
-        setEmails(current => 
+      if (!emailToSelect.isRead && !emailToSelect.read) {
+        setEmails(current =>
           current.map(e =>
-            e.id === email.id ? { ...e, isRead: true, read: true, is_read: true } : e
+            e.id === emailToSelect.id ? { ...e, isRead: true, read: true, is_read: true } : e
           )
         )
       }
-      
-      loadEmailDetails(email.id, email)
+
+      // Only load details if not already decrypted
+      if (!emailToSelect.isDecrypted) {
+        loadEmailDetails(emailToSelect.id, emailToSelect)
+      }
     },
-    [loadEmailDetails]
+    [loadEmailDetails, emails]
   )
 
   const handleFolderChange = useCallback((folder: string) => {
-  setCurrentView('email')
-  setActiveFolder(folder)
-  setSelectedEmail(null)
+    setCurrentView('email')
+    setActiveFolder(folder)
+    setSelectedEmail(null)
   }, [])
 
   const handleCompose = useCallback(() => {
@@ -386,6 +559,71 @@ export const MainDashboard: React.FC = () => {
     setReplyToEmail(selectedEmail)
     setIsComposeOpen(true)
   }, [selectedEmail])
+
+  const handleSecurityLevelToggle = useCallback((level: number) => {
+    setSelectedSecurityLevels(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(level)) {
+        newSet.delete(level)
+      } else {
+        newSet.add(level)
+      }
+      // If all are unchecked, default to showing all levels 1-4
+      if (newSet.size === 0) {
+        return new Set([1, 2, 3, 4])
+      }
+      return newSet
+    })
+  }, [])
+
+  const handleEmailDecrypted = useCallback((result: { email_data: any; security_info?: any }) => {
+    const decrypted = result?.email_data
+    if (!decrypted) return
+
+    setEmails(current => current.map(email => {
+      if (email.id !== decrypted.email_id && email.email_id !== decrypted.email_id) {
+        return email
+      }
+
+      return {
+        ...email,
+        id: email.id ?? decrypted.email_id,
+        email_id: decrypted.email_id,
+        body: decrypted.body,
+        bodyHtml: decrypted.body,
+        bodyText: decrypted.body,
+        content: decrypted.body,
+        requires_decryption: false,
+        isEncrypted: false,
+        isDecrypted: true,
+        securityLevel: result.security_info?.security_level ?? email.securityLevel,
+        security_info: result.security_info ?? email.security_info,
+        attachments: decrypted.attachments ?? email.attachments,
+      }
+    }))
+
+    setSelectedEmail(prev => {
+      if (!prev) return prev
+      if (prev.id !== decrypted.email_id && prev.email_id !== decrypted.email_id) {
+        return prev
+      }
+
+      return {
+        ...prev,
+        email_id: decrypted.email_id,
+        body: decrypted.body,
+        bodyHtml: decrypted.body,
+        bodyText: decrypted.body,
+        content: decrypted.body,
+        requires_decryption: false,
+        isEncrypted: false,
+        isDecrypted: true,
+        securityLevel: result.security_info?.security_level ?? prev.securityLevel,
+        security_info: result.security_info ?? prev.security_info,
+        attachments: decrypted.attachments ?? prev.attachments,
+      }
+    })
+  }, [])
 
   const handleDeleteEmail = useCallback(async () => {
     if (!selectedEmail) return
@@ -417,39 +655,127 @@ export const MainDashboard: React.FC = () => {
     [activeFolder, fetchEmailCounts, fetchEmails]
   )
 
+  const handleSidebarToggle = useCallback(() => {
+    setIsSidebarCollapsed((prev) => !prev)
+  }, [])
+
+  const handleToggleStar = useCallback(
+    async (emailId: string) => {
+      const currentEmail = emails.find((email) => email.id === emailId)
+      if (!currentEmail) return
+
+      const originalStar = Boolean(currentEmail.isStarred ?? currentEmail.is_starred)
+      const nextStar = !originalStar
+
+      setEmails((current) =>
+        current.map((email) =>
+          email.id === emailId ? { ...email, isStarred: nextStar, is_starred: nextStar } : email
+        )
+      )
+
+      setSelectedEmail((prev) =>
+        prev && prev.id === emailId ? { ...prev, isStarred: nextStar, is_starred: nextStar } : prev
+      )
+
+      try {
+        await apiService.toggleEmailStar(emailId, nextStar)
+        toast.success(nextStar ? 'Added to starred' : 'Removed from starred')
+      } catch (error) {
+        console.error('Failed to toggle star:', error)
+        toast.error('Failed to update star status')
+
+        setEmails((current) =>
+          current.map((email) =>
+            email.id === emailId ? { ...email, isStarred: originalStar, is_starred: originalStar } : email
+          )
+        )
+
+        setSelectedEmail((prev) =>
+          prev && prev.id === emailId ? { ...prev, isStarred: originalStar, is_starred: originalStar } : prev
+        )
+      }
+    },
+    [emails]
+  )
+
   const filteredEmails = useMemo(() => {
-    if (!searchQuery.trim()) return emails
+    let filtered = emails
 
-    const query = searchQuery.toLowerCase()
+    // Filter by security level (1-4 are quantum encrypted levels)
+    // When all 4 levels are selected, show all emails including unencrypted
+    const allLevelsSelected = selectedSecurityLevels.size === 4 && 
+      selectedSecurityLevels.has(1) && selectedSecurityLevels.has(2) && 
+      selectedSecurityLevels.has(3) && selectedSecurityLevels.has(4)
+    
+    if (!allLevelsSelected) {
+      filtered = filtered.filter(email => {
+        const level = email.securityLevel ?? email.security_level ?? 0
+        return selectedSecurityLevels.has(level)
+      })
+    }
 
-    return emails.filter((email) => {
-      const fields = [
-        email.subject,
-        email.snippet,
-        email.bodyText,
-        email.sender_name,
-        email.sender_email,
-        email.from,
-        email.to,
-      ]
+    // Then filter by search query if present
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter((email) => {
+        const fields = [
+          email.subject,
+          email.snippet,
+          email.bodyText,
+          email.sender_name,
+          email.sender_email,
+          email.from,
+          email.to,
+        ]
+        return fields.some((field) => field && String(field).toLowerCase().includes(query))
+      })
+    }
 
-      return fields.some((field) => field && String(field).toLowerCase().includes(query))
-    })
-  }, [emails, searchQuery])
+    return filtered
+  }, [emails, searchQuery, selectedSecurityLevels])
 
   useEffect(() => {
-    const token = localStorage.getItem('authToken')
-
+    // Check for token in localStorage (legacy) OR in Zustand store
+    const legacyToken = localStorage.getItem('authToken')
+    const zustandAuth = localStorage.getItem('qumail-auth')
+    
+    // Try to get token from Zustand's persisted storage
+    let zustandToken: string | null = null
+    if (zustandAuth) {
+      try {
+        const parsed = JSON.parse(zustandAuth)
+        zustandToken = parsed?.state?.sessionToken || null
+      } catch (e) {
+        console.warn('Failed to parse qumail-auth:', e)
+      }
+    }
+    
+    // Use whichever token is available
+    const token = legacyToken || zustandToken
+    
     if (!token) {
-      apiService.clearAuthToken()
-      useAuthStore.setState((state) => ({
-        ...state,
-        sessionToken: null,
-        isAuthenticated: false,
-      }))
+      // CRITICAL: Only clear auth if we're ONLINE
+      // When offline, trust the Zustand store's persisted state
+      if (navigator.onLine) {
+        console.log('🔑 [MainDashboard] No token found and online - clearing auth')
+        apiService.clearAuthToken()
+        useAuthStore.setState((state) => ({
+          ...state,
+          sessionToken: null,
+          isAuthenticated: false,
+        }))
+      } else {
+        console.log('📴 [MainDashboard] No legacy token but offline - checking Zustand state')
+        // Don't clear! Trust the Zustand persisted state
+        const currentState = useAuthStore.getState()
+        if (currentState.user && currentState.sessionToken) {
+          console.log('✅ [MainDashboard] Zustand has valid auth - keeping authenticated')
+        }
+      }
       return
     }
 
+    console.log('🔑 [MainDashboard] Token found - setting auth')
     apiService.setAuthToken(token)
 
     useAuthStore.setState((state) => {
@@ -467,12 +793,12 @@ export const MainDashboard: React.FC = () => {
           state.user ||
           (user
             ? {
-                email: user.email,
-                displayName: deriveDisplayName(user.email, user.name),
-                createdAt: new Date().toISOString(),
-                oauthConnected: true,
-                lastLogin: new Date().toISOString(),
-              }
+              email: user.email,
+              displayName: deriveDisplayName(user.email, user.name),
+              createdAt: new Date().toISOString(),
+              oauthConnected: true,
+              lastLogin: new Date().toISOString(),
+            }
             : state.user),
       }
     })
@@ -486,18 +812,39 @@ export const MainDashboard: React.FC = () => {
     fetchEmails(activeFolder)
   }, [activeFolder, fetchEmails])
 
+  // Auto-refresh emails every 30 seconds
+  useEffect(() => {
+    // Set up interval for auto-refresh
+    const intervalId = setInterval(() => {
+      silentRefreshEmails(activeFolder)
+    }, AUTO_REFRESH_INTERVAL)
+
+    // Also refresh when window regains focus
+    const handleFocus = () => {
+      silentRefreshEmails(activeFolder)
+    }
+    
+    window.addEventListener('focus', handleFocus)
+
+    // Cleanup on unmount or when activeFolder changes
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [activeFolder, silentRefreshEmails])
+
 
   const headerUser = user
     ? {
-        id: user.email,
-        email: user.email,
-        name: deriveDisplayName(user.email, user.name),
-        picture: (user as any)?.picture,
-      }
+      id: user.email,
+      email: user.email,
+      name: deriveDisplayName(user.email, user.name),
+      picture: (user as any)?.picture,
+    }
     : null
 
   return (
-    <div className="flex-1 flex flex-col bg-[#fafbfc] dark:bg-[#0d1117] overflow-hidden h-full">
+    <div className={`flex-1 flex flex-col bg-gray-50 overflow-hidden h-full transition-opacity duration-150 ${isReady ? 'opacity-100' : 'opacity-0'}`}>
       <Header
         user={headerUser}
         onCompose={handleCompose}
@@ -506,43 +853,68 @@ export const MainDashboard: React.FC = () => {
         onSearchChange={setSearchQuery}
         currentView={currentView}
         onViewChange={setCurrentView}
+        onToggleSidebar={handleSidebarToggle}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onRefresh={handleManualRefresh}
+        isRefreshing={isRefreshing}
       />
 
-      <div className="flex-1 flex overflow-hidden px-3 pb-3 pt-2 gap-3">
-        <div className="w-56 flex-shrink-0">
+      <div className="flex-1 flex overflow-hidden py-3 pr-3 pl-0 gap-3">
+        <div className="flex-shrink-0 h-full">
           <Sidebar
             activeFolder={activeFolder}
             onFolderChange={handleFolderChange}
             onCompose={handleCompose}
             emailCounts={emailCounts}
-            onNavigateToView={(view) => setCurrentView(view === 'quantum' ? 'quantum' : 'email')}
+            onNavigateToView={(view) => setCurrentView(view as DashboardView)}
+            isCompact={isSidebarCollapsed}
+            currentView={currentView}
+            keyManagerLoggedIn={keyManagerAuth.isLoggedIn}
+            keyManagerType={keyManagerAuth.kmType}
+            selectedSecurityLevels={selectedSecurityLevels}
+            onSecurityLevelToggle={handleSecurityLevelToggle}
+            emails={emails}
           />
         </div>
 
         {currentView === 'email' ? (
           <>
-            <div className="w-80 flex-shrink-0">
+            <div className="w-[28rem] flex-shrink-0 h-full">
               <EmailList
                 emails={filteredEmails as any}
                 selectedEmail={selectedEmail as any}
                 onEmailSelect={(email) => handleEmailSelect(email as DashboardEmail)}
+                onToggleStar={handleToggleStar}
                 isLoading={isLoadingEmails}
                 activeFolder={activeFolder}
               />
             </div>
 
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 h-full">
               <EmailViewer
                 email={selectedEmail as any}
                 onReply={handleReply}
                 onReplyAll={handleReplyAll}
                 onForward={handleForward}
                 onDelete={handleDeleteEmail}
+                onEmailDecrypted={handleEmailDecrypted}
               />
             </div>
           </>
+        ) : currentView === 'keymanager' ? (
+          <div className="flex-1 overflow-hidden rounded-2xl bg-white border border-gray-200 shadow-sm flex">
+            {keyManagerAuth.isLoggedIn ? (
+              <KeyManagerDashboard 
+                kmType={keyManagerAuth.kmType || 'KM1'}
+                username={keyManagerAuth.username || 'admin'}
+                onLogout={handleKeyManagerLogout} 
+              />
+            ) : (
+              <KeyVaultLogin onLogin={handleKeyManagerLogin} />
+            )}
+          </div>
         ) : (
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto rounded-2xl bg-white border border-gray-200 shadow-sm mx-3">
             <QuantumDashboard />
           </div>
         )}
@@ -556,6 +928,7 @@ export const MainDashboard: React.FC = () => {
         }}
         onSend={handleEmailSent}
         replyTo={replyToEmail as any}
+        keyManagerLoggedIn={keyManagerAuth.isLoggedIn}
       />
 
       <SettingsPanel
