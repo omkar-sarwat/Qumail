@@ -116,7 +116,11 @@ async def init_collections():
     db = get_database()
     
     # Users collection indexes
-    await db.users.create_index("email", unique=True)
+    # Try unique index (MongoDB), fallback for Mongita
+    try:
+        await db.users.create_index("email", unique=True)
+    except Exception:
+        await db.users.create_index("email")
     await db.users.create_index("created_at")
     
     # Emails collection indexes
