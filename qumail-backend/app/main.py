@@ -164,24 +164,28 @@ async def lifespan(app: FastAPI):
         logger.info(f"Optimized KM clients initialized successfully: KME1={km1_client.base_url}, KME2={km2_client.base_url}")
         
         # Wait for KME servers to be ready before initializing quantum key manager
-        logger.info("Waiting for KME servers to be ready...")
+        logger.info("Checking KME servers availability...")
         kme_ready = False
-        max_wait_time = 60  # seconds
-        wait_interval = 2  # seconds
+        max_wait_time = 15  # seconds (reduced - don't block startup too long)
+        wait_interval = 3  # seconds
         total_waited = 0
         
         while not kme_ready and total_waited < max_wait_time:
             try:
                 import httpx
-                async with httpx.AsyncClient(timeout=3.0) as client:
+                async with httpx.AsyncClient(timeout=5.0) as client:
                     kme1_response = await client.get(f"{km1_client.base_url}/api/v1/kme/status")
                     kme2_response = await client.get(f"{km2_client.base_url}/api/v1/kme/status")
                     
-                    if kme1_response.status_code == 200 and kme2_response.status_code == 200:
+                    # Accept 200 (ready) or 429 (rate limited but alive) as success
+                    kme1_ok = kme1_response.status_code in (200, 429)
+                    kme2_ok = kme2_response.status_code in (200, 429)
+                    
+                    if kme1_ok and kme2_ok:
                         kme_ready = True
-                        logger.info("✓ KME servers are ready!")
+                        logger.info(f"✓ KME servers are reachable (KME1: {kme1_response.status_code}, KME2: {kme2_response.status_code})")
                     else:
-                        logger.info(f"KME servers responding but not ready (status: {kme1_response.status_code}, {kme2_response.status_code}), waiting...")
+                        logger.info(f"KME servers responding with status: {kme1_response.status_code}, {kme2_response.status_code}, waiting...")
                         await asyncio.sleep(wait_interval)
                         total_waited += wait_interval
             except Exception as e:
