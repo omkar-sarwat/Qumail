@@ -115,15 +115,29 @@ async def init_collections():
     """Initialize MongoDB collections and indexes."""
     db = get_database()
     
-    # Helper function for creating indexes with unique fallback for Mongita
+    # Helper function for creating indexes with fallback for Mongita limitations
     async def safe_create_index(collection, field, unique=False):
         try:
+            # Skip compound/multi-key indexes for Mongita (they're not supported)
+            if isinstance(field, list):
+                try:
+                    await collection.create_index(field)
+                except Exception:
+                    # Mongita doesn't support multi-key indexes, skip silently
+                    pass
+                return
+            
             if unique:
                 await collection.create_index(field, unique=True)
             else:
                 await collection.create_index(field)
         except Exception:
-            await collection.create_index(field)
+            # Fallback: try without unique constraint
+            try:
+                await collection.create_index(field)
+            except Exception:
+                # Skip if even basic index fails (Mongita limitation)
+                pass
     
     # Users collection indexes
     await safe_create_index(db.users, "email", unique=True)
