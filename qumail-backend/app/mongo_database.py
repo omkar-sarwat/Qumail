@@ -115,44 +115,50 @@ async def init_collections():
     """Initialize MongoDB collections and indexes."""
     db = get_database()
     
+    # Helper function for creating indexes with unique fallback for Mongita
+    async def safe_create_index(collection, field, unique=False):
+        try:
+            if unique:
+                await collection.create_index(field, unique=True)
+            else:
+                await collection.create_index(field)
+        except Exception:
+            await collection.create_index(field)
+    
     # Users collection indexes
-    # Try unique index (MongoDB), fallback for Mongita
-    try:
-        await db.users.create_index("email", unique=True)
-    except Exception:
-        await db.users.create_index("email")
-    await db.users.create_index("created_at")
+    await safe_create_index(db.users, "email", unique=True)
+    await safe_create_index(db.users, "created_at")
     
     # Emails collection indexes
-    await db.emails.create_index("flow_id", unique=True)
-    await db.emails.create_index("user_id")
-    await db.emails.create_index("sender_email")
-    await db.emails.create_index("receiver_email")
-    await db.emails.create_index("gmail_message_id")
-    await db.emails.create_index("security_level")
-    await db.emails.create_index("direction")
-    await db.emails.create_index("is_read")
-    await db.emails.create_index("timestamp")
-    await db.emails.create_index([("user_id", 1), ("timestamp", -1)])
+    await safe_create_index(db.emails, "flow_id", unique=True)
+    await safe_create_index(db.emails, "user_id")
+    await safe_create_index(db.emails, "sender_email")
+    await safe_create_index(db.emails, "receiver_email")
+    await safe_create_index(db.emails, "gmail_message_id")
+    await safe_create_index(db.emails, "security_level")
+    await safe_create_index(db.emails, "direction")
+    await safe_create_index(db.emails, "is_read")
+    await safe_create_index(db.emails, "timestamp")
+    await safe_create_index(db.emails, [("user_id", 1), ("timestamp", -1)])
     
     # Drafts collection indexes
-    await db.drafts.create_index("user_id")
-    await db.drafts.create_index("user_email")  # For cross-device sync via Google account
-    await db.drafts.create_index("created_at")
-    await db.drafts.create_index([("user_email", 1), ("updated_at", -1)])  # Optimized query for listing
+    await safe_create_index(db.drafts, "user_id")
+    await safe_create_index(db.drafts, "user_email")
+    await safe_create_index(db.drafts, "created_at")
+    await safe_create_index(db.drafts, [("user_email", 1), ("updated_at", -1)])
     
     # Encryption metadata collection indexes
-    await db.encryption_metadata.create_index("flow_id", unique=True)
-    await db.encryption_metadata.create_index("email_id")
-    await db.encryption_metadata.create_index("key_id")
+    await safe_create_index(db.encryption_metadata, "flow_id", unique=True)
+    await safe_create_index(db.encryption_metadata, "email_id")
+    await safe_create_index(db.encryption_metadata, "key_id")
     
     # Key usage collection indexes
-    await db.key_usage.create_index("email_id")
-    await db.key_usage.create_index("key_id")
-    await db.key_usage.create_index("timestamp")
+    await safe_create_index(db.key_usage, "email_id")
+    await safe_create_index(db.key_usage, "key_id")
+    await safe_create_index(db.key_usage, "timestamp")
     
     # Attachments collection indexes
-    await db.attachments.create_index("email_id")
+    await safe_create_index(db.attachments, "email_id")
     
     logger.info("✅ MongoDB collections and indexes initialized")
 
