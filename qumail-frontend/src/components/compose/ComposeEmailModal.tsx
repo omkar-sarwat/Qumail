@@ -163,7 +163,7 @@ export const ComposeEmailModal: React.FC<ComposeEmailModalProps> = ({
       if (finalSecurityLevel === 1) {
         setEncryptionStatus('Checking quantum key availability...')
         try {
-          const keysResponse = await fetch('http://localhost:8000/api/v1/quantum/keys/available', {
+          const keysResponse = await fetch('https://qumail-backend-gwec.onrender.com/api/v1/quantum/keys/available', {
             headers: {
               Authorization: `Bearer ${token}`
             }
@@ -174,7 +174,7 @@ export const ComposeEmailModal: React.FC<ComposeEmailModalProps> = ({
             if (!keysData.available || keysData.count === 0) {
               setEncryptionStatus('No quantum keys available. Generating new keys...')
 
-              const exchangeResponse = await fetch('http://localhost:8000/api/v1/quantum/key/exchange', {
+              const exchangeResponse = await fetch('https://qumail-backend-gwec.onrender.com/api/v1/quantum/key/exchange', {
                 method: 'POST',
                 headers: {
                   Authorization: `Bearer ${token}`,
@@ -217,7 +217,7 @@ export const ComposeEmailModal: React.FC<ComposeEmailModalProps> = ({
       if (bccList.length > 0) payload.bcc = bccList
 
       setEncryptionStatus('Sending encrypted email via Gmail...')
-      const response = await fetch('http://localhost:8000/api/v1/emails/send/quantum', {
+      const response = await fetch('https://qumail-backend-gwec.onrender.com/api/v1/emails/send/quantum', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

@@ -69,7 +69,7 @@ export const ComposeEmailModal: React.FC<ComposeEmailModalProps> = ({
 
     setIsSending(true)
     try {
-      const response = await fetch('http://localhost:8000/api/v1/emails/send', {
+      const response = await fetch('https://qumail-backend-gwec.onrender.com/api/v1/emails/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -8,16 +8,43 @@ html {
   opacity: 1;
 }
 
-/* Smooth rendering */
+/* Smooth rendering and prevent flickering */
 * {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* GPU acceleration for transitions */
+.transform-gpu {
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 /* Prevent layout shift during load */
 #root {
   min-height: 100vh;
   background: white;
+}
+
+/* Stable layout for sidebar transitions */
+.sidebar-transition {
+  will-change: width;
+  transform: translateZ(0);
+}
+
+/* Prevent image flickering */
+img {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* Smooth width transitions */
+[class*="transition-"] {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
 }
 
 /* Base styles */

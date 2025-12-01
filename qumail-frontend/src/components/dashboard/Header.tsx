@@ -101,10 +101,10 @@ export const Header: React.FC<HeaderProps> = ({
       return (
         <header className="relative z-50 h-20 bg-white border-b border-gray-200 flex items-center px-4 flex-shrink-0">
           {/* Left: Logo/Toggle - Width tracks sidebar state */}
-          <div className={`${isSidebarCollapsed ? 'w-24' : 'w-64'} flex items-center gap-3 flex-shrink-0 pr-4 transition-all duration-300`}>
+          <div className={`${isSidebarCollapsed ? 'w-24' : 'w-64'} flex items-center gap-3 flex-shrink-0 pr-4 transition-[width] duration-300 ease-in-out`}>
             <button
               onClick={onToggleSidebar}
-              className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
               aria-label="Toggle sidebar"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -112,12 +112,20 @@ export const Header: React.FC<HeaderProps> = ({
               </svg>
             </button>
 
-            <div className="flex items-center">
-              {isSidebarCollapsed ? (
-                <img src="/qumail-icon.svg" alt="QuMail" className="h-9 w-auto" />
-              ) : (
-                <img src="/qumail-logo.svg" alt="QuMail" className="h-10 w-auto" />
-              )}
+            {/* Logo container with fixed dimensions to prevent layout shift */}
+            <div className="flex items-center h-10 overflow-hidden flex-shrink-0">
+              <img 
+                src="/qumail-logo.svg" 
+                alt="QuMail" 
+                className={`h-10 w-auto transition-all duration-300 ease-in-out transform-gpu ${isSidebarCollapsed ? 'scale-90 opacity-0 -translate-x-4' : 'scale-100 opacity-100 translate-x-0'}`}
+                style={{ minWidth: isSidebarCollapsed ? '0' : '120px' }}
+              />
+              <img 
+                src="/qumail-icon.svg" 
+                alt="QuMail" 
+                className={`h-9 w-9 absolute transition-all duration-300 ease-in-out transform-gpu ${isSidebarCollapsed ? 'scale-100 opacity-100 translate-x-0' : 'scale-90 opacity-0 translate-x-4'}`}
+                style={{ left: isSidebarCollapsed ? '56px' : '56px' }}
+              />
             </div>
           </div>
 

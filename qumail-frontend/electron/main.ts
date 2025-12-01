@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, Notification, Menu, Tray, nativeImage } from 'electron'
 import { join } from 'node:path'
-import { spawn, ChildProcess } from 'child_process'
+import { ChildProcess } from 'child_process'
 import axios from 'axios'
 import * as http from 'http'
 import * as database from './database'
@@ -26,82 +26,28 @@ let backendProcess: ChildProcess | null = null
 // 🚧 Use ['ENV_NAME'] avoid vite:define plugin - Vite@2.x
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const isDev = !app.isPackaged
-const BACKEND_PORT = 8000
+
+// Backend is on Render (cloud) - not local
+const BACKEND_URL = 'https://qumail-backend-gwec.onrender.com'
 
 // KME servers are on Render (cloud) - not local
 const KME1_URL = 'https://qumail-kme1-brzq.onrender.com'
 const KME2_URL = 'https://qumail-kme2-brzq.onrender.com'
 
-// Get resource paths for bundled Python apps
-function getResourcePath(relativePath: string): string {
-  if (isDev) {
-    return join(__dirname, '..', '..', relativePath)
-  }
-  return join(process.resourcesPath, relativePath)
-}
-
-// Start Python backend server
-async function startBackendServer(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const backendPath = getResourcePath('qumail-backend')
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
-    
-    console.log('[Backend] Starting FastAPI server...')
-    console.log('[Backend] Path:', backendPath)
-    console.log('[Backend] Using KME1:', KME1_URL)
-    console.log('[Backend] Using KME2:', KME2_URL)
-
-    const env = {
-      ...process.env,
-      PYTHONUNBUFFERED: '1',
-      QUMAIL_ENV: 'electron',
-      BACKEND_PORT: BACKEND_PORT.toString(),
-      KM1_BASE_URL: KME1_URL,
-      KM2_BASE_URL: KME2_URL,
+// Check if Render backend is available (no local backend needed)
+async function checkBackendServer(): Promise<void> {
+  console.log('[Backend] Using Render backend:', BACKEND_URL)
+  console.log('[Backend] Using KME1:', KME1_URL)
+  console.log('[Backend] Using KME2:', KME2_URL)
+  
+  try {
+    const response = await axios.get(`${BACKEND_URL}/health`, { timeout: 10000 })
+    if (response.status === 200) {
+      console.log('[Backend] Render backend is available!')
     }
-
-    const args = ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', BACKEND_PORT.toString()]
-
-    backendProcess = spawn(pythonCmd, args, {
-      cwd: backendPath,
-      env,
-      shell: true,
-    })
-
-    backendProcess.stdout?.on('data', (data) => {
-      console.log('[Backend]', data.toString().trim())
-    })
-
-    backendProcess.stderr?.on('data', (data) => {
-      console.error('[Backend]', data.toString().trim())
-    })
-
-    backendProcess.on('error', (error) => {
-      console.error('[Backend] Failed to start:', error)
-      reject(error)
-    })
-
-    // Wait for backend to be ready
-    const maxRetries = 60
-    let retries = 0
-    const checkBackend = setInterval(async () => {
-      try {
-        const response = await axios.get(`http://localhost:${BACKEND_PORT}/health`, { timeout: 2000 })
-        if (response.status === 200) {
-          clearInterval(checkBackend)
-          console.log('[Backend] Server is ready!')
-          resolve()
-        }
-      } catch (error) {
-        retries++
-        if (retries >= maxRetries) {
-          clearInterval(checkBackend)
-          console.log('[Backend] Server did not respond, continuing anyway...')
-          resolve() // Don't reject, let app start anyway
-        }
-      }
-    }, 1000)
-  })
+  } catch (error) {
+    console.log('[Backend] Render backend check failed, but continuing...')
+  }
 }
 
 // Create system tray
@@ -312,11 +258,11 @@ app.whenReady().then(async () => {
       }
     })
     
-    // Start backend server (KME servers are on Render cloud)
-    console.log('[App] Starting backend server...')
+    // Check Render backend availability (no local backend needed)
+    console.log('[App] Using Render backend:', BACKEND_URL)
     console.log('[App] KME servers on Render:', KME1_URL, KME2_URL)
-    await startBackendServer()
-    console.log('[App] Backend server started!')
+    await checkBackendServer()
+    console.log('[App] Backend check complete!')
     
     console.log('[App] Creating main window...')
     createWindow()
@@ -361,7 +307,7 @@ app.on('will-quit', () => {
 // IPC Handlers
 ipcMain.handle('api-request', async (_event, { method, url, data, headers }) => {
   try {
-    const fullUrl = `http://localhost:${BACKEND_PORT}${url}`
+    const fullUrl = `${BACKEND_URL}${url}`
     const response = await axios({
       method,
       url: fullUrl,
@@ -459,7 +405,7 @@ ipcMain.handle('write-file', async (_event, filePath, content) => {
 
 ipcMain.handle('get-backend-status', async () => {
   try {
-    const response = await axios.get(`http://localhost:${BACKEND_PORT}/health`, { timeout: 2000 })
+    const response = await axios.get(`${BACKEND_URL}/health`, { timeout: 5000 })
     return { online: true, data: response.data }
   } catch (error) {
     return { online: false }

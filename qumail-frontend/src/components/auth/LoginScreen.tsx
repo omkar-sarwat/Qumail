@@ -69,7 +69,7 @@ export const LoginScreen: React.FC = () => {
           // Initialize quantum pool
           try {
             const token = localStorage.getItem('authToken')
-            const response = await fetch('http://localhost:8000/api/v1/emails/quantum/pool/initialize', {
+            const response = await fetch('https://qumail-backend-gwec.onrender.com/api/v1/emails/quantum/pool/initialize', {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${token}`,

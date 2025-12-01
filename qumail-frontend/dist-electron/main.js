@@ -85,7 +85,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 var electron_1 = require("electron");
 var node_path_1 = require("node:path");
-var child_process_1 = require("child_process");
 var axios_1 = __importDefault(require("axios"));
 var http = __importStar(require("http"));
 var database = __importStar(require("./database"));
@@ -108,79 +107,37 @@ var backendProcess = null;
 // 🚧 Use ['ENV_NAME'] avoid vite:define plugin - Vite@2.x
 var VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 var isDev = !electron_1.app.isPackaged;
-var BACKEND_PORT = 8000;
+// Backend is on Render (cloud) - not local
+var BACKEND_URL = 'https://qumail-backend-gwec.onrender.com';
 // KME servers are on Render (cloud) - not local
 var KME1_URL = 'https://qumail-kme1-brzq.onrender.com';
 var KME2_URL = 'https://qumail-kme2-brzq.onrender.com';
-// Get resource paths for bundled Python apps
-function getResourcePath(relativePath) {
-    if (isDev) {
-        return (0, node_path_1.join)(__dirname, '..', '..', relativePath);
-    }
-    return (0, node_path_1.join)(process.resourcesPath, relativePath);
-}
-// Start Python backend server
-function startBackendServer() {
+// Check if Render backend is available (no local backend needed)
+function checkBackendServer() {
     return __awaiter(this, void 0, void 0, function () {
-        var _this = this;
+        var response, error_1;
         return __generator(this, function (_a) {
-            return [2 /*return*/, new Promise(function (resolve, reject) {
-                    var _a, _b;
-                    var backendPath = getResourcePath('qumail-backend');
-                    var pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-                    console.log('[Backend] Starting FastAPI server...');
-                    console.log('[Backend] Path:', backendPath);
+            switch (_a.label) {
+                case 0:
+                    console.log('[Backend] Using Render backend:', BACKEND_URL);
                     console.log('[Backend] Using KME1:', KME1_URL);
                     console.log('[Backend] Using KME2:', KME2_URL);
-                    var env = __assign(__assign({}, process.env), { PYTHONUNBUFFERED: '1', QUMAIL_ENV: 'electron', BACKEND_PORT: BACKEND_PORT.toString(), KM1_BASE_URL: KME1_URL, KM2_BASE_URL: KME2_URL });
-                    var args = ['-m', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', BACKEND_PORT.toString()];
-                    backendProcess = (0, child_process_1.spawn)(pythonCmd, args, {
-                        cwd: backendPath,
-                        env: env,
-                        shell: true,
-                    });
-                    (_a = backendProcess.stdout) === null || _a === void 0 ? void 0 : _a.on('data', function (data) {
-                        console.log('[Backend]', data.toString().trim());
-                    });
-                    (_b = backendProcess.stderr) === null || _b === void 0 ? void 0 : _b.on('data', function (data) {
-                        console.error('[Backend]', data.toString().trim());
-                    });
-                    backendProcess.on('error', function (error) {
-                        console.error('[Backend] Failed to start:', error);
-                        reject(error);
-                    });
-                    // Wait for backend to be ready
-                    var maxRetries = 60;
-                    var retries = 0;
-                    var checkBackend = setInterval(function () { return __awaiter(_this, void 0, void 0, function () {
-                        var response, error_1;
-                        return __generator(this, function (_a) {
-                            switch (_a.label) {
-                                case 0:
-                                    _a.trys.push([0, 2, , 3]);
-                                    return [4 /*yield*/, axios_1.default.get("http://localhost:".concat(BACKEND_PORT, "/health"), { timeout: 2000 })];
-                                case 1:
-                                    response = _a.sent();
-                                    if (response.status === 200) {
-                                        clearInterval(checkBackend);
-                                        console.log('[Backend] Server is ready!');
-                                        resolve();
-                                    }
-                                    return [3 /*break*/, 3];
-                                case 2:
-                                    error_1 = _a.sent();
-                                    retries++;
-                                    if (retries >= maxRetries) {
-                                        clearInterval(checkBackend);
-                                        console.log('[Backend] Server did not respond, continuing anyway...');
-                                        resolve(); // Don't reject, let app start anyway
-                                    }
-                                    return [3 /*break*/, 3];
-                                case 3: return [2 /*return*/];
-                            }
-                        });
-                    }); }, 1000);
-                })];
+                    _a.label = 1;
+                case 1:
+                    _a.trys.push([1, 3, , 4]);
+                    return [4 /*yield*/, axios_1.default.get("".concat(BACKEND_URL, "/health"), { timeout: 10000 })];
+                case 2:
+                    response = _a.sent();
+                    if (response.status === 200) {
+                        console.log('[Backend] Render backend is available!');
+                    }
+                    return [3 /*break*/, 4];
+                case 3:
+                    error_1 = _a.sent();
+                    console.log('[Backend] Render backend check failed, but continuing...');
+                    return [3 /*break*/, 4];
+                case 4: return [2 /*return*/];
+            }
         });
     });
 }
@@ -374,13 +331,13 @@ electron_1.app.whenReady().then(function () { return __awaiter(void 0, void 0, v
                         win.focus();
                     }
                 });
-                // Start backend server (KME servers are on Render cloud)
-                console.log('[App] Starting backend server...');
+                // Check Render backend availability (no local backend needed)
+                console.log('[App] Using Render backend:', BACKEND_URL);
                 console.log('[App] KME servers on Render:', KME1_URL, KME2_URL);
-                return [4 /*yield*/, startBackendServer()];
+                return [4 /*yield*/, checkBackendServer()];
             case 1:
                 _a.sent();
-                console.log('[App] Backend server started!');
+                console.log('[App] Backend check complete!');
                 console.log('[App] Creating main window...');
                 createWindow();
                 createTray();
@@ -427,7 +384,7 @@ electron_1.ipcMain.handle('api-request', function (_event_1, _a) { return __awai
         switch (_e.label) {
             case 0:
                 _e.trys.push([0, 2, , 3]);
-                fullUrl = "http://localhost:".concat(BACKEND_PORT).concat(url);
+                fullUrl = "".concat(BACKEND_URL).concat(url);
                 return [4 /*yield*/, (0, axios_1.default)({
                         method: method,
                         url: fullUrl,
@@ -549,7 +506,7 @@ electron_1.ipcMain.handle('get-backend-status', function () { return __awaiter(v
         switch (_a.label) {
             case 0:
                 _a.trys.push([0, 2, , 3]);
-                return [4 /*yield*/, axios_1.default.get("http://localhost:".concat(BACKEND_PORT, "/health"), { timeout: 2000 })];
+                return [4 /*yield*/, axios_1.default.get("".concat(BACKEND_URL, "/health"), { timeout: 5000 })];
             case 1:
                 response = _a.sent();
                 return [2 /*return*/, { online: true, data: response.data }];

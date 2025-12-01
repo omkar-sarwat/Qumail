@@ -81,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ]
 
   return (
-    <div className={`${isCompact ? 'w-24' : 'w-64'} h-full bg-white border-y border-r border-gray-200 rounded-r-2xl shadow-sm flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out z-20 relative overflow-y-auto overflow-x-hidden`}>
+    <div className={`${isCompact ? 'w-24' : 'w-64'} h-full bg-white border-y border-r border-gray-200 rounded-r-2xl shadow-sm flex flex-col flex-shrink-0 transition-[width] duration-300 ease-in-out z-20 relative overflow-y-auto overflow-x-hidden will-change-[width]`}>
       {/* Modern Compose Button */}
       <div className="p-5 flex justify-center border-b border-gray-100 dark:border-gray-800">
         <Button
