@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Request
 from fastapi.responses import RedirectResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from typing import List, Optional, Dict, Any
@@ -29,7 +29,9 @@ router = APIRouter(prefix="/api/v1", tags=["Gmail API"])
 
 @router.get("/auth/google", response_model=AuthURLResponse)
 async def get_google_auth_url(
-    user_id: Optional[str] = Query(None, description="Optional user ID for state tracking")
+    request: Request,
+    user_id: Optional[str] = Query(None, description="Optional user ID for state tracking"),
+    is_electron: bool = Query(False, description="Whether request is from Electron app")
 ):
     """
     Get Google OAuth authorization URL
@@ -40,9 +42,16 @@ async def get_google_auth_url(
     - Offline access for refresh tokens
     """
     try:
-        auth_data = oauth_service.generate_authorization_url(user_id)
+        # Get origin from request headers to determine correct redirect URI
+        origin = request.headers.get("origin") or request.headers.get("referer", "").rstrip("/")
+        # Clean up origin (remove path if present in referer)
+        if origin and "/" in origin.replace("://", ""):
+            parts = origin.split("/")
+            origin = "/".join(parts[:3])  # Keep only scheme://host:port
         
-        logger.info(f"Generated OAuth URL for user: {user_id}")
+        auth_data = oauth_service.generate_authorization_url(user_id, is_electron=is_electron, origin=origin)
+        
+        logger.info(f"Generated OAuth URL for user: {user_id}, origin: {origin}, is_electron: {is_electron}")
         
         return AuthURLResponse(
             authorization_url=auth_data["authorization_url"],

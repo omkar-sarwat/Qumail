@@ -95,13 +95,21 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Authentication failed")
 
 @router.get("/google", response_model=AuthStartResponse)
-def get_google_oauth(is_electron: bool = False):
+def get_google_oauth(request: Request, is_electron: bool = False):
     """Get Google OAuth URL for real authentication"""
     try:
+        # Get origin from request headers to determine correct redirect URI
+        origin = request.headers.get("origin") or request.headers.get("referer", "").rstrip("/")
+        # Clean up origin (remove path if present in referer)
+        if origin and "/" in origin.replace("://", ""):
+            parts = origin.split("/")
+            origin = "/".join(parts[:3])  # Keep only scheme://host:port
+        
         oauth_data = oauth_service.generate_authorization_url(
-            is_electron=is_electron
+            is_electron=is_electron,
+            origin=origin
         )
-        logger.info(f"Generated OAuth URL with state: {oauth_data['state']}, is_electron: {is_electron}")
+        logger.info(f"Generated OAuth URL with state: {oauth_data['state']}, is_electron: {is_electron}, origin: {origin}")
         return AuthStartResponse(
             authorization_url=oauth_data["authorization_url"],
             state=oauth_data["state"]
