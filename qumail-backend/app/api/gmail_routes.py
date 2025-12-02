@@ -43,11 +43,21 @@ async def get_google_auth_url(
     """
     try:
         # Get origin from request headers to determine correct redirect URI
-        origin = request.headers.get("origin") or request.headers.get("referer", "").rstrip("/")
-        # Clean up origin (remove path if present in referer)
-        if origin and "/" in origin.replace("://", ""):
-            parts = origin.split("/")
-            origin = "/".join(parts[:3])  # Keep only scheme://host:port
+        origin = None
+        try:
+            from urllib.parse import urlparse
+            raw_origin = request.headers.get("origin")
+            raw_referer = request.headers.get("referer", "")
+            origin = raw_origin or (raw_referer.rstrip("/") if raw_referer else None)
+            # Parse properly to get scheme://host:port
+            if origin and "://" in origin:
+                parsed = urlparse(origin)
+                if parsed.scheme and parsed.netloc:
+                    origin = f"{parsed.scheme}://{parsed.netloc}"
+            logger.info(f"Parsed origin: {origin} from raw_origin={raw_origin}, raw_referer={raw_referer}")
+        except Exception as parse_error:
+            logger.warning(f"Failed to parse origin: {parse_error}")
+            origin = None
         
         auth_data = oauth_service.generate_authorization_url(user_id, is_electron=is_electron, origin=origin)
         

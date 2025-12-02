@@ -99,11 +99,22 @@ def get_google_oauth(request: Request, is_electron: bool = False):
     """Get Google OAuth URL for real authentication"""
     try:
         # Get origin from request headers to determine correct redirect URI
-        origin = request.headers.get("origin") or request.headers.get("referer", "").rstrip("/")
-        # Clean up origin (remove path if present in referer)
-        if origin and "/" in origin.replace("://", ""):
-            parts = origin.split("/")
-            origin = "/".join(parts[:3])  # Keep only scheme://host:port
+        origin = None
+        try:
+            raw_origin = request.headers.get("origin")
+            raw_referer = request.headers.get("referer", "")
+            origin = raw_origin or raw_referer.rstrip("/") if raw_referer else None
+            # Clean up origin (remove path if present in referer)
+            if origin and "://" in origin:
+                # Parse properly to get scheme://host:port
+                from urllib.parse import urlparse
+                parsed = urlparse(origin)
+                if parsed.scheme and parsed.netloc:
+                    origin = f"{parsed.scheme}://{parsed.netloc}"
+            logger.info(f"Parsed origin: {origin} from raw_origin={raw_origin}, raw_referer={raw_referer}")
+        except Exception as parse_error:
+            logger.warning(f"Failed to parse origin: {parse_error}")
+            origin = None
         
         oauth_data = oauth_service.generate_authorization_url(
             is_electron=is_electron,
@@ -115,8 +126,8 @@ def get_google_oauth(request: Request, is_electron: bool = False):
             state=oauth_data["state"]
         )
     except Exception as e:
-        logger.error(f"Failed to generate OAuth URL: {e}")
-        raise HTTPException(status_code=500, detail="Failed to initialize OAuth")
+        logger.error(f"Failed to generate OAuth URL: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to initialize OAuth: {str(e)}")
 
 @router.get("/debug/states")
 async def debug_oauth_states():

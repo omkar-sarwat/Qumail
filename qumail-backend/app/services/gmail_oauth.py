@@ -36,10 +36,17 @@ class GoogleOAuthService:
     def __init__(self):
         self.client_id = settings.google_client_id
         self.client_secret = settings.google_client_secret
-        # Support both web and Electron redirect URIs
-        # For Electron, use port 5174 to avoid conflicts with Vite dev server on 5173
-        self.redirect_uri = "http://localhost:5173/auth/callback"
-        self.electron_redirect_uri = "http://localhost:5174/auth/callback"
+        # Support multiple redirect URIs based on environment
+        # Order: environment variable > production > localhost
+        self.redirect_uris = {
+            "localhost": "http://localhost:5173/auth/callback",
+            "electron": "http://localhost:5174/auth/callback",
+            "netlify": "https://temp2mgm.netlify.app/auth/callback",
+            "vercel": "https://qumail-frontend.vercel.app/auth/callback",
+        }
+        # Default redirect URI from env or localhost
+        self.redirect_uri = getattr(settings, 'google_redirect_uri', None) or self.redirect_uris["localhost"]
+        self.electron_redirect_uri = self.redirect_uris["electron"]
         self.scopes = [
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.send', 
@@ -55,7 +62,7 @@ class GoogleOAuthService:
         # OAuth state storage (use Redis in production)
         self._oauth_states: Dict[str, Dict[str, Any]] = {}
     
-    def generate_authorization_url(self, user_id: Optional[str] = None, is_electron: bool = False) -> Dict[str, str]:
+    def generate_authorization_url(self, user_id: Optional[str] = None, is_electron: bool = False, origin: Optional[str] = None) -> Dict[str, str]:
         """
         Generate secure OAuth authorization URL
         
@@ -70,8 +77,22 @@ class GoogleOAuthService:
         # Generate cryptographically secure state
         state = secrets.token_urlsafe(32)
         
-        # Choose redirect URI based on is_electron flag
-        redirect_uri = self.electron_redirect_uri if is_electron else self.redirect_uri
+        # Choose redirect URI based on origin or is_electron flag
+        if is_electron:
+            redirect_uri = self.electron_redirect_uri
+        elif origin:
+            # Match origin to known redirect URIs
+            if "netlify.app" in origin:
+                redirect_uri = self.redirect_uris.get("netlify", self.redirect_uri)
+            elif "vercel.app" in origin:
+                redirect_uri = self.redirect_uris.get("vercel", self.redirect_uri)
+            elif "localhost" in origin:
+                redirect_uri = self.redirect_uris.get("localhost", self.redirect_uri)
+            else:
+                # Use origin + /auth/callback for unknown origins
+                redirect_uri = f"{origin.rstrip('/')}/auth/callback"
+        else:
+            redirect_uri = self.redirect_uri
         
         # Store state with expiration (30 minutes for debugging)
         expiry = datetime.utcnow() + timedelta(minutes=30)
