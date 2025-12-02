@@ -309,9 +309,11 @@ app.add_middleware(SecurityMiddleware)
 app.add_middleware(RateLimitMiddleware, requests_per_minute=60)
 
 # 3. CORS middleware
+# Parse allowed origins from comma-separated string
+cors_origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
