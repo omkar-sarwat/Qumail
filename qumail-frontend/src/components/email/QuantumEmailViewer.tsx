@@ -2,8 +2,13 @@
 import { Shield, Lock, AlertTriangle, CheckCircle, Clock, Paperclip, Download, ShieldCheck, Cpu, Key, Smartphone } from 'lucide-react';
 import { emailService } from '../../services/emailService';
 import { decryptAuthService } from '../../services/decryptAuthService';
+import { EMAIL_PLACEHOLDER_HTML, normalizeEmailBody } from '../../utils/emailContent';
 
 type DecryptStage = 'locked' | 'decrypting' | 'totp_required' | 'verifying_totp' | 'decrypted';
+
+// Module-level Set to track decrypted emails in this browser session
+// This persists across component re-renders and re-mounts
+const sessionDecryptedEmails = new Set<string>();
 
 interface QuantumEmailViewerProps {
   email: {
@@ -53,11 +58,12 @@ interface DecryptedAttachment {
 }
 
 // TOTP Input Component for Google Authenticator verification
+// Memoized to prevent re-renders during parent state changes
 const TOTPInput: React.FC<{
   onSubmit: (code: string) => void;
   isVerifying: boolean;
   error: string | null;
-}> = ({ onSubmit, isVerifying, error }) => {
+}> = React.memo(({ onSubmit, isVerifying, error }) => {
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -99,7 +105,7 @@ const TOTPInput: React.FC<{
   };
 
   return (
-    <div className="text-center">
+    <div className="text-center totp-input-stable">
       <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mb-4 mx-auto">
         <Smartphone className="w-8 h-8 text-indigo-600" />
       </div>
@@ -122,31 +128,32 @@ const TOTPInput: React.FC<{
             onKeyDown={e => handleKeyDown(index, e)}
             onPaste={handlePaste}
             disabled={isVerifying}
-            className={`w-12 h-14 text-center text-2xl font-bold border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors
+            className={`totp-digit-input w-12 h-14 text-center text-2xl font-bold border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
               ${error ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'}
-              ${isVerifying ? 'opacity-50 cursor-not-allowed' : ''}
+              ${isVerifying ? 'opacity-60' : ''}
             `}
           />
         ))}
       </div>
       
-      {error && (
-        <p className="text-red-600 text-sm mb-4">{error}</p>
-      )}
-      
-      {isVerifying && (
-        <div className="flex items-center justify-center gap-2 text-indigo-600">
-          <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm">Verifying...</span>
-        </div>
-      )}
+      {/* Fixed height container for error/verifying states to prevent layout shift */}
+      <div className="h-8 flex items-center justify-center">
+        {error ? (
+          <p className="text-red-600 text-sm">{error}</p>
+        ) : isVerifying ? (
+          <div className="flex items-center justify-center gap-2 text-indigo-600">
+            <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full totp-verify-spin" />
+            <span className="text-sm">Verifying...</span>
+          </div>
+        ) : null}
+      </div>
       
       <p className="text-xs text-gray-400 mt-4">
         Code refreshes every 30 seconds
       </p>
     </div>
   );
-};
+});
 
 const SecurityLevelBadge: React.FC<{ level: number; quantumEnhanced: boolean }> = ({ 
   level, 
@@ -185,21 +192,77 @@ const SecurityLevelBadge: React.FC<{ level: number; quantumEnhanced: boolean }> 
   );
 };
 
+// Helper function to compute initial state SYNCHRONOUSLY
+// This prevents the brief flash of decrypt button or TOTP when switching emails
+const getInitialState = (email: QuantumEmailViewerProps['email']): {
+  stage: DecryptStage;
+  content: any | null;
+  info: any | null;
+} => {
+  // If parent provided decrypted content
+  if (email.decrypted_body && !email.requires_decryption) {
+    sessionDecryptedEmails.add(email.email_id);
+    return { stage: 'decrypted', content: { body: email.decrypted_body }, info: null };
+  }
+  
+  // If already decrypted in this session, check cache
+  if (sessionDecryptedEmails.has(email.email_id)) {
+    const cacheKey = `qumail_decrypted_${email.email_id}`;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const cachedData = JSON.parse(cached);
+        
+        // Check TOTP session SYNCHRONOUSLY
+        // If valid TOTP session exists, go straight to decrypted
+        const hasValidSession = decryptAuthService.hasValidTOTPSession(email.email_id);
+        
+        if (hasValidSession) {
+          // Valid TOTP session - show decrypted content immediately
+          return { 
+            stage: 'decrypted', 
+            content: cachedData.content, 
+            info: cachedData.security_info || null 
+          };
+        }
+        
+        // No valid session - will need to check if TOTP is required async
+        // Default to 'totp_required' to prevent flash of decrypt button
+        // The useEffect will correct this to 'decrypted' if TOTP not enabled
+        return { 
+          stage: 'totp_required', 
+          content: cachedData.content, 
+          info: cachedData.security_info || null 
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to load cached content in initial state:', e);
+    }
+  }
+  
+  // Not decrypted - show locked
+  return { stage: 'locked', content: null, info: null };
+};
+
 export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({ 
   email, 
   onDecrypted 
 }) => {
-  // Initialize stage as 'loading' to prevent flash of decrypted content
-  const [stage, setStage] = useState<DecryptStage>('locked');
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [decryptedContent, setDecryptedContent] = useState<any | null>(null);
-  const [decryptionInfo, setDecryptionInfo] = useState<any | null>(null);
+  // Compute initial state SYNCHRONOUSLY to prevent flash of wrong UI
+  const initialState = getInitialState(email);
+  
+  const [stage, setStage] = useState<DecryptStage>(initialState.stage);
+  const [decryptedContent, setDecryptedContent] = useState<any | null>(initialState.content);
+  const [decryptionInfo, setDecryptionInfo] = useState<any | null>(initialState.info);
   const [error, setError] = useState<string | null>(null);
   const [totpError, setTotpError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [hashSequence, setHashSequence] = useState('');
   const [_totpSetup, setTotpSetup] = useState<boolean | null>(null);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  // Track the email ID to detect when we switch emails
+  const currentEmailIdRef = useRef(email.email_id);
 
   // Helper to get cache key for this email
   const getCacheKey = useCallback((emailId: string) => `qumail_decrypted_${emailId}`, []);
@@ -213,15 +276,17 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
 
   const startProgressAnimation = useCallback(() => {
     stopProgressAnimation();
+    // Use a smoother progress animation with larger intervals
     progressIntervalRef.current = setInterval(() => {
       setProgress(prev => {
         if (prev >= 96) {
           return prev;
         }
-        const increment = 0.8 + Math.random() * 1.2;
+        // Smoother increment with less frequent updates
+        const increment = 1.5 + Math.random() * 1.5;
         return Math.min(prev + increment, 96);
       });
-    }, 18);
+    }, 50); // 50ms instead of 18ms for smoother visual
   }, [stopProgressAnimation]);
 
   useEffect(() => {
@@ -235,119 +300,86 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
     })
   }, [email])
 
-  // Combined initialization: Check TOTP status AND load cache in correct order
-  // This ensures we never flash decrypted content before checking TOTP
+  // Combined initialization - handles email switching and TOTP validation
   useEffect(() => {
     let cancelled = false;
     
-    const initialize = async () => {
-      setIsInitializing(true);
+    // Detect if we switched emails - if so, SYNCHRONOUSLY reset state
+    if (currentEmailIdRef.current !== email.email_id) {
+      currentEmailIdRef.current = email.email_id;
       
-      // Step 1: Check TOTP status first
-      let isTotpEnabled = false;
+      // Synchronously compute and apply the new state for this email
+      const newState = getInitialState(email);
+      setStage(newState.stage);
+      setDecryptedContent(newState.content);
+      setDecryptionInfo(newState.info);
+      setError(null);
+      setProgress(0);
+      setHashSequence('');
+      stopProgressAnimation();
+    }
+    
+    const initialize = async () => {
+      // CASE 1: Parent provided already decrypted content
+      if (email.decrypted_body && !email.requires_decryption) {
+        console.log('✅ Using decrypted_body from parent for email:', email.email_id);
+        setDecryptedContent({ body: email.decrypted_body });
+        setError(null);
+        setStage('decrypted');
+        sessionDecryptedEmails.add(email.email_id);
+        return;
+      }
+      
+      // CASE 2: Check if decrypted in THIS SESSION (module-level Set)
+      const wasDecryptedThisSession = sessionDecryptedEmails.has(email.email_id);
+      console.log('📧 Email session check:', email.email_id, 'decrypted:', wasDecryptedThisSession);
+      
+      if (wasDecryptedThisSession) {
+        // User already decrypted this email in current session
+        // Content already loaded synchronously in getInitialState
+        // Just need to check TOTP status
+        
+        // Check TOTP requirement
+        try {
+          const status = await decryptAuthService.getStatus();
+          if (cancelled) return;
+          
+          setTotpSetup(status.totp_verified);
+          
+          if (status.totp_verified && !decryptAuthService.hasValidTOTPSession(email.email_id)) {
+            // TOTP enabled but session expired (>5 min) - require verification
+            // Stage is already 'totp_required' from getInitialState
+            console.log('🔐 TOTP session expired, requiring verification');
+            setStage('totp_required');
+          } else {
+            // No TOTP or valid session - show content directly
+            console.log('✅ Valid TOTP session or no TOTP, showing content');
+            setError(null);
+            setStage('decrypted');
+          }
+        } catch (e) {
+          console.warn('Failed to check TOTP status:', e);
+          if (!cancelled) {
+            // Default to showing decrypted content if TOTP check fails
+            setStage('decrypted');
+          }
+        }
+        return;
+      }
+      
+      // CASE 3: Never decrypted this session → Stage is already 'locked' from getInitialState
+      console.log('🔒 Email not decrypted in session, showing decrypt button');
+      
+      // Preload TOTP status in background
       try {
         const status = await decryptAuthService.getStatus();
-        isTotpEnabled = status.totp_verified;
         if (!cancelled) {
-          setTotpSetup(isTotpEnabled);
-          console.log('🔐 TOTP status:', status);
+          setTotpSetup(status.totp_verified);
         }
       } catch (e) {
         console.warn('Failed to check TOTP status:', e);
         if (!cancelled) setTotpSetup(false);
       }
-      
-      if (cancelled) return;
-      
-      // Step 2: Check if parent provided decrypted_body
-      if (email.decrypted_body && !email.requires_decryption) {
-        console.log('✅ Using decrypted_body from parent for email:', email.email_id);
-        
-        // Check if TOTP required for this email
-        const isFirstDecrypt = decryptAuthService.isFirstDecrypt(email.email_id);
-        
-        if (!isFirstDecrypt && isTotpEnabled && !decryptAuthService.hasValidTOTPSession(email.email_id)) {
-          // Need TOTP verification
-          setDecryptedContent({ body: email.decrypted_body });
-          setStage('totp_required');
-        } else {
-          setDecryptedContent({ body: email.decrypted_body });
-          setError(null);
-          setStage('decrypted');
-          if (!isFirstDecrypt) {
-            decryptAuthService.markFirstDecryptComplete(email.email_id);
-          }
-        }
-        setIsInitializing(false);
-        return;
-      }
-      
-      // Step 3: Check localStorage cache
-      const cacheKey = getCacheKey(email.email_id);
-      try {
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          const parsedCache = JSON.parse(cached);
-          console.log('✅ Found cached decrypted content for email:', email.email_id);
-          
-          // Check if this is first decrypt or subsequent
-          const isFirstDecrypt = decryptAuthService.isFirstDecrypt(email.email_id);
-          
-          if (isFirstDecrypt) {
-            // First time seeing this email - show decrypted content directly
-            setDecryptedContent(parsedCache.content);
-            setDecryptionInfo(parsedCache.security_info || null);
-            setError(null);
-            setStage('decrypted');
-            // Mark as first decrypt complete
-            decryptAuthService.markFirstDecryptComplete(email.email_id);
-            // Notify parent
-            if (onDecrypted && parsedCache.content) {
-              onDecrypted({ 
-                success: true, 
-                email_data: parsedCache.content, 
-                security_info: parsedCache.security_info,
-                from_cache: true 
-              });
-            }
-          } else if (isTotpEnabled) {
-            // Subsequent decrypt with TOTP enabled - need verification
-            // Store content for after verification (but don't show yet!)
-            setDecryptedContent(parsedCache.content);
-            setDecryptionInfo(parsedCache.security_info || null);
-            
-            // Check if we have a valid session
-            if (decryptAuthService.hasValidTOTPSession(email.email_id)) {
-              // Valid session - show content
-              setError(null);
-              setStage('decrypted');
-            } else {
-              // Need TOTP verification - show TOTP input immediately
-              setStage('totp_required');
-            }
-          } else {
-            // TOTP not set up - show content directly
-            setDecryptedContent(parsedCache.content);
-            setDecryptionInfo(parsedCache.security_info || null);
-            setError(null);
-            setStage('decrypted');
-          }
-          setIsInitializing(false);
-          return;
-        }
-      } catch (e) {
-        console.warn('Failed to load cached decryption:', e);
-      }
-      
-      // No cache or parent-provided content, reset state
-      setStage('locked');
-      setDecryptedContent(null);
-      setDecryptionInfo(null);
-      setError(null);
-      setProgress(0);
-      setHashSequence('');
-      stopProgressAnimation();
-      setIsInitializing(false);
     };
     
     initialize();
@@ -355,12 +387,24 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [email.email_id, email.decrypted_body, email.requires_decryption, getCacheKey, stopProgressAnimation, onDecrypted]);
+  }, [email.email_id, email.decrypted_body, email.requires_decryption, getCacheKey, stopProgressAnimation]);
 
+  // Hash sequence animation - smoother and less frequent updates
   useEffect(() => {
     if (stage !== 'decrypting') return;
 
     const chars = '0123456789ABCDEF';
+    // Generate initial hash immediately
+    let initial = '';
+    for (let i = 0; i < 24; i++) {
+      initial += chars.charAt(Math.floor(Math.random() * chars.length));
+      if ((i + 1) % 4 === 0 && i !== 23) {
+        initial += ' ';
+      }
+    }
+    setHashSequence(initial);
+    
+    // Update less frequently (200ms instead of 80ms) to reduce flicker
     const interval = setInterval(() => {
       let next = '';
       for (let i = 0; i < 24; i++) {
@@ -370,7 +414,7 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
         }
       }
       setHashSequence(next);
-    }, 80);
+    }, 200);
 
     return () => clearInterval(interval);
   }, [stage]);
@@ -510,7 +554,10 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
         setDecryptedContent(enrichedData);
         setDecryptionInfo(response.security_info ?? null);
         
-        // Cache decrypted content in localStorage for persistence across sessions
+        // Mark as decrypted in this session (module-level Set persists across re-renders)
+        sessionDecryptedEmails.add(email.email_id);
+        
+        // Cache decrypted content in localStorage
         try {
           const cacheKey = getCacheKey(email.email_id);
           localStorage.setItem(cacheKey, JSON.stringify({
@@ -523,12 +570,27 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
           console.warn('Failed to cache decrypted content:', cacheError);
         }
         
-        // Mark first decrypt complete
-        decryptAuthService.markFirstDecryptComplete(email.email_id);
-        
-        onDecrypted?.({ ...response, email_data: enrichedData });
         setProgress(100);
-        setStage('decrypted');
+        
+        // After successful decrypt, check if TOTP is enabled
+        // If enabled, show TOTP input immediately (don't show content yet)
+        try {
+          const status = await decryptAuthService.getStatus();
+          if (status.totp_verified) {
+            // TOTP is enabled - require verification before showing content
+            console.log('🔐 TOTP enabled, requiring verification after decrypt');
+            setStage('totp_required');
+          } else {
+            // No TOTP - show content directly
+            onDecrypted?.({ ...response, email_data: enrichedData });
+            setStage('decrypted');
+          }
+        } catch (e) {
+          // On error checking TOTP, just show content
+          console.warn('Failed to check TOTP status after decrypt:', e);
+          onDecrypted?.({ ...response, email_data: enrichedData });
+          setStage('decrypted');
+        }
       } else {
         setError('Failed to decrypt email');
         setStage('locked');
@@ -601,35 +663,7 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
     }
   }
 
-  // Helper function to format the decrypted body for display
-  // Converts plain text to HTML-safe format with line breaks
-  function formatDecryptedBody(body: string | undefined): string {
-    if (!body) return '<p class="text-gray-400 italic">No content</p>';
-    
-    // If it's plain text (not HTML), convert newlines to <br> and wrap in paragraph
-    const isHtml = /<[a-z][\s\S]*>/i.test(body);
-    
-    if (!isHtml) {
-      // Plain text - escape HTML entities and convert newlines
-      const escaped = body
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-      
-      // Convert newlines to <br> and wrap paragraphs
-      const formatted = escaped
-        .split(/\n\n+/)
-        .map(para => `<p>${para.replace(/\n/g, '<br>')}</p>`)
-        .join('');
-      
-      return formatted || '<p class="text-gray-400 italic">No content</p>';
-    }
-    
-    // For HTML content, return as-is (already formatted)
-    return body;
-  }
+  const formatDecryptedBody = (body: string | undefined) => normalizeEmailBody(body, EMAIL_PLACEHOLDER_HTML)
 
   // Format security level display
   const securityLevelDisplay = `${resolvedSecurityLevel} - ${resolvedAlgorithm}`;
@@ -650,26 +684,6 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-      {/* Loading state - show while checking TOTP and cache */}
-      {isInitializing ? (
-        <div className="p-6">
-          <div className="animate-pulse">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-8 w-32 bg-gray-200 rounded-lg"></div>
-              <div className="h-4 w-48 bg-gray-200 rounded"></div>
-            </div>
-            <div className="h-6 w-3/4 bg-gray-200 rounded mb-4"></div>
-            <div className="h-4 w-1/2 bg-gray-200 rounded"></div>
-          </div>
-          <div className="mt-8 flex items-center justify-center">
-            <div className="flex items-center gap-3 text-gray-500">
-              <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-sm">Checking security status...</span>
-            </div>
-          </div>
-        </div>
-      ) : (
-      <>
       {/* Email Header */}
       <div className="p-6 border-b border-gray-200">
         <div className="flex items-start justify-between mb-4">
@@ -838,31 +852,31 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
 
             <div className="relative z-10 w-full px-8">
               {stage === 'decrypting' ? (
-                <div className="w-full max-w-xs mx-auto text-center">
+                <div className="w-full max-w-xs mx-auto text-center decrypt-progress-stable">
                   <div className="relative w-16 h-16 mx-auto mb-6">
-                    <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping"></div>
+                    <div className="absolute inset-0 bg-indigo-50 rounded-full opacity-60"></div>
                     <div className="relative bg-white rounded-full w-16 h-16 flex items-center justify-center border border-indigo-100 shadow-sm">
-                      <Cpu size={32} className="text-indigo-600 animate-pulse" />
+                      <Cpu size={32} className="text-indigo-600 decrypt-icon-spin" />
                     </div>
                   </div>
 
                   <h2 className="text-indigo-900 font-bold text-sm tracking-wider mb-2">
-                    ESTABLISHING SECURE LINK
+                    DECRYPTING MESSAGE
                   </h2>
                   <p className="text-xs text-gray-500 mb-2">Using quantum keys from KME</p>
-                  <div className="font-mono text-[10px] text-indigo-600/60 h-4 mb-4 tracking-widest">
-                    {hashSequence}
+                  <div className="font-mono text-[10px] text-indigo-600/50 h-4 mb-4 tracking-widest overflow-hidden">
+                    <span className="inline-block">{hashSequence || '\u00A0'}</span>
                   </div>
                   <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden w-full">
                     <div
-                      className="h-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.4)] transition-all duration-75 ease-out"
+                      className="h-full bg-indigo-600 decrypt-progress-bar"
                       style={{ width: `${progress}%` }}
                     ></div>
                   </div>
                 </div>
               ) : stage === 'totp_required' || stage === 'verifying_totp' ? (
                 /* TOTP Verification Screen */
-                <div className="py-4">
+                <div className="py-4 totp-container-stable">
                   <TOTPInput
                     onSubmit={handleTotpVerify}
                     isVerifying={stage === 'verifying_totp'}
@@ -897,8 +911,6 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
           </div>
         )}
       </div>
-      </>
-      )}
     </div>
   );
 };

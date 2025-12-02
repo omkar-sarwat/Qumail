@@ -70,12 +70,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   if (collapsed) {
     return (
-      <div className="w-16 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col items-center py-4 gap-4">
-        <button
+      <div className="w-16 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col items-center py-4 gap-4 transition-all duration-300 ease-in-out">
+        {/* App Logo */}
+        <div
           onClick={onToggleCollapse}
-          className="w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:opacity-90"
+          className="qumail-logo-mark bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg cursor-pointer hover:opacity-90"
         >
-          <Edit className="w-4 h-4" />
+          <svg className="text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+
+        {/* Compose Button */}
+        <button
+          onClick={onComposeClick}
+          className="w-10 h-10 rounded-lg flex items-center justify-center bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-gray-700 transition-all duration-200"
+          title="Compose"
+        >
+          <Edit className="w-5 h-5" />
         </button>
         {effectiveFolders.map(f => (
           <button
@@ -103,10 +115,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
     )
   }
   return (
-    <div className="w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+    <div className="w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 ease-in-out">
+      {/* App Header */}
+      <div className="h-20 flex items-center px-6 border-b border-gray-200 dark:border-gray-700">
+        <div className="qumail-logo-mark bg-gradient-to-br from-blue-500 to-purple-600 shadow-sm mr-3">
+          <svg className="text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <span className="font-bold text-xl text-gray-900 dark:text-white tracking-tight">QuMail</span>
+      </div>
+
       {/* User Profile */}
       {user && (
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
               {user.avatar ? (

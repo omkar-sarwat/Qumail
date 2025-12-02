@@ -86,34 +86,25 @@ class RealGmailService:
                     
                     logger.info(f"Found {len(messages)} messages in Gmail {folder}")
                 
-                # Second request: Fetch detailed message data
+                # Second request: Fetch detailed message data in parallel
                 detailed_emails = []
                 
-                # Process messages in batches to avoid hitting rate limits
-                batch_size = 10
-                for i in range(0, len(messages), batch_size):
-                    batch = messages[i:i+batch_size]
-                    batch_tasks = []
+                # Process ALL messages in parallel for speed (Gmail API handles this fine)
+                all_tasks = [
+                    self._fetch_message_details(session, message['id'], headers)
+                    for message in messages
+                ]
+                
+                if all_tasks:
+                    # Fetch all in parallel - much faster than batching
+                    all_results = await asyncio.gather(*all_tasks, return_exceptions=True)
                     
-                    for message in batch:
-                        task = self._fetch_message_details(session, message['id'], headers)
-                        batch_tasks.append(task)
-                    
-                    # Wait for batch to complete
-                    if batch_tasks:
-                        batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-                        
-                        for result in batch_results:
-                            if isinstance(result, Exception):
-                                logger.error(f"Error fetching message: {result}")
-                                continue
-                            
-                            if result:
-                                detailed_emails.append(result)
-                    
-                    # Small delay between batches to be respectful to Gmail API
-                    if i + batch_size < len(messages):
-                        await asyncio.sleep(0.1)
+                    for result in all_results:
+                        if isinstance(result, Exception):
+                            logger.error(f"Error fetching message: {result}")
+                            continue
+                        if result:
+                            detailed_emails.append(result)
                 
                 logger.info(f"Successfully processed {len(detailed_emails)} Gmail emails")
                 

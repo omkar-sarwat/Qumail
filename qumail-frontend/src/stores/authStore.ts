@@ -228,6 +228,16 @@ export const useAuthStore = create<AuthState>()(
           }
           
           get().setAuthData(user, response.session_token)
+          
+          // OPTIMIZATION: Prefetch emails in background immediately after login
+          // This makes the inbox load instantly when user navigates to it
+          setTimeout(() => {
+            console.log('⚡ Prefetching emails in background after login...');
+            import('./emailStore').then(({ useEmailStore }) => {
+              useEmailStore.getState().fetchEmails({ folder: 'gmail_inbox' as any }, true);
+            });
+          }, 100);
+          
           return true
         } catch (error: any) {
           console.error('OAuth callback failed:', error)

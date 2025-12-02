@@ -62,8 +62,10 @@ export interface VerifyDecryptTOTPResponse {
 const STORAGE_KEYS = {
   // Track which emails have been decrypted with quantum keys (first time)
   FIRST_DECRYPT_PREFIX: 'qumail_first_decrypt_',
-  // Track TOTP verification sessions
-  TOTP_SESSION: 'qumail_totp_session',
+  // Track TOTP verification sessions (per email)
+  TOTP_SESSION_PREFIX: 'qumail_totp_session_',
+  // Global TOTP session (for any email within 5 min)
+  TOTP_GLOBAL_SESSION: 'qumail_totp_global_session',
 };
 
 // ============================================
@@ -174,21 +176,35 @@ class DecryptAuthService {
   /**
    * Check if user has a valid TOTP session for an email
    * (verified within last 5 minutes)
+   * Checks both per-email session AND global session
    */
   hasValidTOTPSession(emailId: string): boolean {
     try {
-      const session = localStorage.getItem(STORAGE_KEYS.TOTP_SESSION);
-      if (!session) return false;
-      
-      const parsed = JSON.parse(session);
-      if (parsed.email_id !== emailId) return false;
-      
-      // Check if session is still valid (5 minutes)
-      const verifiedAt = new Date(parsed.verified_at);
       const now = new Date();
-      const diffMinutes = (now.getTime() - verifiedAt.getTime()) / (1000 * 60);
       
-      return diffMinutes < 5;
+      // Check per-email session first
+      const emailSession = localStorage.getItem(`${STORAGE_KEYS.TOTP_SESSION_PREFIX}${emailId}`);
+      if (emailSession) {
+        const parsed = JSON.parse(emailSession);
+        const verifiedAt = new Date(parsed.verified_at);
+        const diffMinutes = (now.getTime() - verifiedAt.getTime()) / (1000 * 60);
+        if (diffMinutes < 5) {
+          return true;
+        }
+      }
+      
+      // Check global session (any TOTP verified in last 5 min)
+      const globalSession = localStorage.getItem(STORAGE_KEYS.TOTP_GLOBAL_SESSION);
+      if (globalSession) {
+        const parsed = JSON.parse(globalSession);
+        const verifiedAt = new Date(parsed.verified_at);
+        const diffMinutes = (now.getTime() - verifiedAt.getTime()) / (1000 * 60);
+        if (diffMinutes < 5) {
+          return true;
+        }
+      }
+      
+      return false;
     } catch {
       return false;
     }
@@ -196,12 +212,20 @@ class DecryptAuthService {
 
   /**
    * Store a successful TOTP verification session
+   * Stores both per-email and global session for flexible checking
    */
   storeVerificationSession(emailId: string): void {
-    localStorage.setItem(STORAGE_KEYS.TOTP_SESSION, JSON.stringify({
+    const sessionData = {
       email_id: emailId,
       verified_at: new Date().toISOString()
-    }));
+    };
+    
+    // Store per-email session
+    localStorage.setItem(`${STORAGE_KEYS.TOTP_SESSION_PREFIX}${emailId}`, JSON.stringify(sessionData));
+    
+    // Store global session (any TOTP verification grants 5-min access to all decrypted emails)
+    localStorage.setItem(STORAGE_KEYS.TOTP_GLOBAL_SESSION, JSON.stringify(sessionData));
+    
     console.log(`✅ TOTP session stored for email: ${emailId}`);
   }
 

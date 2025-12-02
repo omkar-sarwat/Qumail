@@ -15,11 +15,11 @@ class GmailService:
         self.smtp_host = "smtp.gmail.com"
         self.smtp_port = 587
         self.base_url = "https://gmail.googleapis.com/gmail/v1"
-        self._max_request_retries = 5
-        self._initial_backoff_seconds = 1.0
-        self._max_backoff_seconds = 16.0
+        self._max_request_retries = 3  # Reduced from 5 for faster failure
+        self._initial_backoff_seconds = 0.5  # Reduced from 1.0
+        self._max_backoff_seconds = 8.0  # Reduced from 16.0
         self._retryable_statuses = {429, 500, 502, 503, 504}
-        self._max_concurrent_fetches = 5
+        self._max_concurrent_fetches = 15  # Increased from 5 for faster parallel fetching
 
     async def send_email_oauth(self, user_email: str, access_token: str, mime_message: bytes) -> str | None:
         auth_string = f"user={user_email}\x01auth=Bearer {access_token}\x01\x01"

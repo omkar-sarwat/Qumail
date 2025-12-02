@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -297,6 +298,9 @@ app = FastAPI(
 )
 
 # Add middleware (order matters!)
+
+# 0. GZip compression for faster response delivery
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # 1. Security middleware (first)
 app.add_middleware(SecurityMiddleware)

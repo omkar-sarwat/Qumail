@@ -116,14 +116,39 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   hasMore: true,
   pageToken: undefined,
 
-  // Fetch emails based on filter
+  // Fetch emails based on filter - OPTIMIZED for speed
   fetchEmails: async (filter = {}, reset = false) => {
+    const newFilter = { ...get().currentFilter, ...filter }
+    
+    // OPTIMIZATION 1: Load cached emails from localStorage first (instant)
+    if (reset) {
+      const cacheKey = `qumail_emails_cache_${newFilter.folder}`;
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const { emails: cachedEmails, timestamp } = JSON.parse(cached);
+          const cacheAge = Date.now() - timestamp;
+          // Use cache if less than 5 minutes old
+          if (cacheAge < 5 * 60 * 1000 && cachedEmails?.length > 0) {
+            console.log(`⚡ Loaded ${cachedEmails.length} emails from cache (${Math.round(cacheAge/1000)}s old)`);
+            set({ 
+              emails: cachedEmails, 
+              currentFilter: newFilter,
+              isLoading: true, // Still loading fresh data in background
+              pageToken: undefined, 
+              hasMore: true 
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load email cache:', e);
+      }
+    }
+    
     try {
       set({ isLoading: true, error: null })
       
-      const newFilter = { ...get().currentFilter, ...filter }
-      
-      if (reset) {
+      if (reset && get().emails.length === 0) {
         set({ emails: [], pageToken: undefined, hasMore: true })
       }
 
@@ -163,13 +188,29 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         source: email.source || (email.id?.startsWith('gmail_') ? 'gmail' : 'qumail'),
       }))
 
+      const allEmails = [...currentEmails, ...newEmails];
+      
       set({
-        emails: [...currentEmails, ...newEmails],
+        emails: allEmails,
         currentFilter: newFilter,
         isLoading: false,
         hasMore: !!response.nextPageToken,
         pageToken: response.nextPageToken,
       })
+
+      // OPTIMIZATION 2: Cache emails to localStorage for instant loading next time
+      if (reset && newEmails.length > 0) {
+        try {
+          const cacheKey = `qumail_emails_cache_${newFilter.folder}`;
+          localStorage.setItem(cacheKey, JSON.stringify({
+            emails: allEmails.slice(0, 50), // Cache first 50 emails
+            timestamp: Date.now()
+          }));
+          console.log(`💾 Cached ${Math.min(allEmails.length, 50)} emails for ${newFilter.folder}`);
+        } catch (e) {
+          console.warn('Failed to cache emails:', e);
+        }
+      }
 
       // Update unread count
       get().updateUnreadCount()
@@ -177,6 +218,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     } catch (error: any) {
       console.error('Failed to fetch emails:', error)
       const errorMessage = error.response?.data?.detail || 'Failed to fetch emails'
+      
+      // Keep cached emails on error if we have them
+      if (get().emails.length > 0) {
+        set({ isLoading: false })
+        console.log('📦 Keeping cached emails after fetch error');
+        return;
+      }
       
       set({
         error: errorMessage,

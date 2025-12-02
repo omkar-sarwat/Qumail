@@ -22,7 +22,7 @@ interface EmailListProps {
   folderName: string
 }
 
-export const EmailList: React.FC<EmailListProps> = ({
+const EmailListComponent: React.FC<EmailListProps> = ({
   emails,
   selectedEmail,
   onEmailSelect,
@@ -140,28 +140,31 @@ export const EmailList: React.FC<EmailListProps> = ({
           </div>
         ) : (
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {emails.map((email, index) => (
+            {emails.map((email) => (
               <motion.div
                 key={email.id}
-                initial={{ opacity: 0, y: 20 }}
+                layout
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
                 onClick={() => onEmailSelect(email)}
-                className={`cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-150 ${
-                  selectedEmail?.id === email.id 
-                    ? 'bg-blue-50 dark:bg-blue-900/20 border-r-2 border-blue-500' 
-                    : ''
+                className={`group cursor-pointer border-r-2 border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/70 transition-colors duration-150 ${
+                  selectedEmail?.id === email.id
+                    ? 'bg-blue-50/70 dark:bg-blue-900/30 border-blue-500'
+                    : 'bg-white dark:bg-transparent'
                 }`}
               >
                 <div className="px-3 py-2">
                   <div className="flex items-start justify-between mb-1.5">
                     <div className="flex items-center space-x-1.5 min-w-0 flex-1">
                       {getSourceIcon(email.source)}
-                      <span className={`text-xs truncate ${
-                        email.isRead 
-                          ? 'text-gray-600 dark:text-gray-400' 
-                          : 'font-semibold text-gray-900 dark:text-white'
-                      }`}>
+                      <span
+                        className={`text-[13px] font-medium truncate transition-colors duration-150 ${
+                          email.isRead
+                            ? 'text-gray-600 dark:text-gray-400'
+                            : 'text-gray-900 dark:text-white'
+                        }`}
+                      >
                         {email.sender}
                       </span>
                     </div>
@@ -178,15 +181,17 @@ export const EmailList: React.FC<EmailListProps> = ({
                     </div>
                   </div>
                   
-                  <h3 className={`text-xs mb-0.5 truncate ${
-                    email.isRead 
-                      ? 'text-gray-700 dark:text-gray-300' 
-                      : 'font-semibold text-gray-900 dark:text-white'
-                  }`}>
+                  <h3
+                    className={`text-[13px] font-medium leading-snug mb-0.5 truncate transition-colors duration-150 ${
+                      email.isRead
+                        ? 'text-gray-700 dark:text-gray-300'
+                        : 'text-gray-900 dark:text-white'
+                    }`}
+                  >
                     {email.subject || '(No Subject)'}
                   </h3>
-                  
-                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+
+                  <p className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">
                     {email.snippet}
                   </p>
                   
@@ -216,3 +221,6 @@ export const EmailList: React.FC<EmailListProps> = ({
     </div>
   )
 }
+
+export const EmailList = React.memo(EmailListComponent)
+EmailList.displayName = 'EmailList'

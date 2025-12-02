@@ -14,6 +14,7 @@ import {
 import SecurityDetails from './SecurityDetails';
 import { QuantumEmailViewer } from '../email/QuantumEmailViewer';
 import { getAvatarColor } from '../../utils/avatarColors';
+import { EMAIL_PLACEHOLDER_HTML, normalizeEmailBody } from '../../utils/emailContent';
 
 // Simplified Email type for UI purposes
 interface Email {
@@ -160,6 +161,22 @@ export const EmailViewer: React.FC<EmailViewerProps> = ({
         minute: '2-digit',
       }),
     };
+  }, [email]);
+
+  const resolvedEmailBody = useMemo(() => {
+    if (!email) return EMAIL_PLACEHOLDER_HTML;
+    const rawContent =
+      email.decrypted_body ??
+      email.content ??
+      email.bodyHtml ??
+      email.html_body ??
+      email.body ??
+      email.bodyText ??
+      email.plain_body ??
+      email.snippet ??
+      '';
+
+    return normalizeEmailBody(rawContent, EMAIL_PLACEHOLDER_HTML);
   }, [email]);
 
   // Only show quantum decrypt UI for security levels 1, 2, 3
@@ -398,20 +415,12 @@ export const EmailViewer: React.FC<EmailViewerProps> = ({
             </div>
           </div>
           ) : (
-            <article
-              className="prose max-w-none text-gray-800 leading-relaxed"
-              dangerouslySetInnerHTML={{
-                __html: email.decrypted_body
-                  ?? email.content
-                  ?? email.bodyHtml
-                  ?? email.html_body
-                  ?? email.body
-                  ?? email.bodyText
-                  ?? email.plain_body
-                  ?? email.snippet
-                  ?? '<p class="text-gray-400 italic">No content available</p>',
-              }}
-            />
+            <article className="email-content-wrapper">
+              <div
+                className="email-html-content prose max-w-none text-gray-800 leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: resolvedEmailBody }}
+              />
+            </article>
           )}
           {email.securityDetails && <SecurityDetails email={email} />}
 

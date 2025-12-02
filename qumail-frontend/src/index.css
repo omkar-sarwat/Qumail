@@ -26,6 +26,19 @@ html {
 #root {
   min-height: 100vh;
   background: white;
+  overflow: hidden; /* Prevent scrollbar flickering */
+}
+
+body {
+  overflow: hidden; /* Prevent body scrollbar */
+  font-size: 16px; /* Enforce base font size */
+  font-family: var(--qumail-font-family);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  font-feature-settings: 'liga' 1, 'kern' 1;
 }
 
 /* Stable layout for sidebar transitions */
@@ -53,6 +66,18 @@ img {
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   line-height: 1.5;
   font-weight: 400;
+  --qumail-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  --qumail-logo-size: clamp(30px, 2.15vw, 36px);
+  --qumail-logo-radius: 12px;
+  --qumail-text: #0f172a;
+  --qumail-text-muted: #475569;
+  --qumail-surface: #ffffff;
+  --qumail-surface-strong: #f8fafc;
+  --qumail-surface-muted: #eef2ff;
+  --qumail-border: #e2e8f0;
+  --qumail-border-strong: #cbd5f5;
+  --qumail-shadow-soft: 0 18px 45px -25px rgba(15, 23, 42, 0.18);
   --qumail-dark-muted: #cbd5f5;
 
   /* Input styles */
@@ -86,6 +111,14 @@ img {
 /* Dark mode support */
 .dark {
   color-scheme: dark;
+  --qumail-text: #e2e8f0;
+  --qumail-text-muted: #94a3b8;
+  --qumail-surface: #0f172a;
+  --qumail-surface-strong: #111c30;
+  --qumail-surface-muted: #15233d;
+  --qumail-border: #1e293b;
+  --qumail-border-strong: #334155;
+  --qumail-shadow-soft: 0 20px 55px -30px rgba(15, 23, 42, 0.65);
 }
 
 /* Focus styles for accessibility */
@@ -317,7 +350,7 @@ img {
     transform: translateY(20px);
   }
 
-  to {
+  body {
     opacity: 1;
     transform: translateY(0);
   }
@@ -327,6 +360,8 @@ img {
   from {
     opacity: 0;
     transform: translateX(20px);
+    color: var(--qumail-text);
+    background-color: var(--qumail-surface-strong);
   }
 
   to {
@@ -352,7 +387,7 @@ img {
 .email-list-item {
   @apply transition-all duration-300 ease-in-out cursor-pointer border-l-4 border-transparent rounded-2xl backdrop-blur;
   background-color: var(--qumail-surface);
-  box-shadow: 0 18px 45px -25px rgba(15, 23, 42, 0.45);
+  box-shadow: var(--qumail-shadow-soft);
 }
 
 .email-list-item.unread {
@@ -464,4 +499,143 @@ img {
     color: blue !important;
     text-decoration: underline !important;
   }
+}
+
+.qumail-logo-mark {
+  width: var(--qumail-logo-size);
+  height: var(--qumail-logo-size);
+  border-radius: var(--qumail-logo-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+
+.qumail-logo-mark svg {
+  width: calc(var(--qumail-logo-size) * 0.55);
+  height: calc(var(--qumail-logo-size) * 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================
+   STABLE DECRYPT & TOTP UI STYLES
+   Prevents flickering and layout shifts during
+   decryption and 2FA verification flows
+   ============================================ */
+
+/* Stable loading container - no animate-pulse */
+.decrypt-loading-stable {
+  will-change: auto;
+  transform: translateZ(0);
+  contain: layout style;
+}
+
+.decrypt-loading-stable > div {
+  /* Prevent any inherited animations */
+  animation: none !important;
+}
+
+/* Stable decrypt progress container */
+.decrypt-progress-stable {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Smooth icon spin without ping effect */
+.decrypt-icon-spin {
+  animation: smoothSpin 1.5s linear infinite;
+}
+
+@keyframes smoothSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Smooth progress bar without glow/shadow transitions */
+.decrypt-progress-bar {
+  transition: width 100ms linear;
+  background-color: #4f46e5;
+}
+
+/* TOTP container with fixed height to prevent layout shifts */
+.totp-container-stable {
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* TOTP input component stable layout */
+.totp-input-stable {
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+}
+
+/* TOTP digit input - no transition-colors to prevent flicker */
+.totp-digit-input {
+  transition: none;
+  -webkit-appearance: none;
+  -moz-appearance: textfield;
+  font-variant-numeric: tabular-nums;
+}
+
+.totp-digit-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+/* Smooth verify spinner without jank */
+.totp-verify-spin {
+  animation: spinSmooth 0.8s linear infinite;
+}
+
+@keyframes spinSmooth {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Hide number input spinners */
+.totp-digit-input::-webkit-outer-spin-button,
+.totp-digit-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Ensure stable typography in decrypt/TOTP areas */
+.decrypt-loading-stable,
+.decrypt-progress-stable,
+.totp-container-stable,
+.totp-input-stable {
+  font-family: var(--qumail-font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Dark mode variants */
+.dark .decrypt-loading-stable > div > div {
+  background-color: rgba(55, 65, 81, 0.4);
+}
+
+.dark .totp-digit-input {
+  background-color: #1f2937;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
+.dark .totp-digit-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
 }

@@ -6,7 +6,6 @@ This module implements NIST-standardized post-quantum cryptographic algorithms:
 - ML-DSA-87 (standardized Dilithium) for Digital Signatures
 - AES-256-GCM for symmetric encryption
 
-Using the pqcrypto library: https://pypi.org/project/pqcrypto/
 """
 import logging
 import base64

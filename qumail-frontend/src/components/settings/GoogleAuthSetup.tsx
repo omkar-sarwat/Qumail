@@ -140,7 +140,7 @@ export const GoogleAuthSetup: React.FC<GoogleAuthSetupProps> = ({ onSetupComplet
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full totp-verify-spin" />
       </div>
     );
   }
@@ -229,7 +229,7 @@ export const GoogleAuthSetup: React.FC<GoogleAuthSetupProps> = ({ onSetupComplet
           </div>
         ) : setupStep === 'verify' ? (
           /* Verify code */
-          <div className="text-center">
+          <div className="text-center totp-input-stable">
             <h4 className="font-semibold text-gray-900 mb-2">Verify Setup</h4>
             <p className="text-sm text-gray-500 mb-6">
               Enter the 6-digit code from Google Authenticator:
@@ -247,24 +247,25 @@ export const GoogleAuthSetup: React.FC<GoogleAuthSetupProps> = ({ onSetupComplet
                   onChange={e => handleCodeChange(index, e.target.value)}
                   onKeyDown={e => handleKeyDown(index, e)}
                   disabled={verifying}
-                  className={`w-12 h-14 text-center text-2xl font-bold border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors
+                  className={`totp-digit-input w-12 h-14 text-center text-2xl font-bold border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
                     ${verifyError ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'}
-                    ${verifying ? 'opacity-50 cursor-not-allowed' : ''}
+                    ${verifying ? 'opacity-60' : ''}
                   `}
                 />
               ))}
             </div>
             
-            {verifyError && (
-              <p className="text-red-600 text-sm mb-4">{verifyError}</p>
-            )}
-            
-            {verifying && (
-              <div className="flex items-center justify-center gap-2 text-indigo-600 mb-4">
-                <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm">Verifying...</span>
-              </div>
-            )}
+            {/* Fixed height container for error/verifying states */}
+            <div className="h-8 flex items-center justify-center mb-4">
+              {verifyError ? (
+                <p className="text-red-600 text-sm">{verifyError}</p>
+              ) : verifying ? (
+                <div className="flex items-center justify-center gap-2 text-indigo-600">
+                  <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full totp-verify-spin" />
+                  <span className="text-sm">Verifying...</span>
+                </div>
+              ) : null}
+            </div>
             
             <button
               onClick={() => setSetupStep('show_qr')}
