@@ -1,0 +1,5 @@
+{
+  "name": "QuMail Secure Workspace",
+  "description": "A quantum-secure email client interface featuring encrypted messaging, security analytics, and a modern three-pane layout.",
+  "requestFramePermissions": []
+}
