@@ -1,5 +1,4 @@
 [build]
-  base = "qumail-frontend"
   publish = "dist"
   command = "npm run build"
 
