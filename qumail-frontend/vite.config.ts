@@ -4,6 +4,7 @@ import { resolve } from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: '/',
   plugins: [
     react({
       // Use automatic JSX runtime for better performance
@@ -77,7 +78,6 @@ export default defineConfig({
   css: {
     devSourcemap: true,
   },
-  base: './',
   // Define environment variables
   define: {
     __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
