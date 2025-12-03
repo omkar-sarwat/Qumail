@@ -303,7 +303,7 @@ app = FastAPI(
 # Parse allowed origins from comma-separated string and merge with critical defaults
 cors_origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
 mandatory_origins = [
-    "https://qumail-nine.vercel.app",
+    "https://qumail-rho.vercel.app",
     "https://qumail-frontend.vercel.app",
     "https://qumail-frontend.netlify.app",
 ]
