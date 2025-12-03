@@ -280,25 +280,32 @@ class SecurityMiddleware:
             # Check for suspicious patterns
             await self._check_suspicious_request(request, client_ip)
             
-            # Add security headers to response
+            # Add security headers to response (preserve existing headers including CORS)
             async def send_wrapper(message):
                 if message["type"] == "http.response.start":
-                    headers = dict(message.get("headers", []))
+                    # Get existing headers as list of tuples
+                    existing_headers = list(message.get("headers", []))
                     
-                    # Add security headers
-                    security_headers = {
-                        b"x-content-type-options": b"nosniff",
-                        b"x-frame-options": b"DENY",
-                        b"x-xss-protection": b"1; mode=block",
-                        b"strict-transport-security": b"max-age=31536000; includeSubDomains",
-                        b"referrer-policy": b"strict-origin-when-cross-origin",
-                        b"permissions-policy": b"geolocation=(), microphone=(), camera=()",
-                        b"x-qumail-version": b"1.0.0-secure"
-                    }
+                    # Security headers to add (only if not already present)
+                    security_headers = [
+                        (b"x-content-type-options", b"nosniff"),
+                        (b"x-frame-options", b"DENY"),
+                        (b"x-xss-protection", b"1; mode=block"),
+                        (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
+                        (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                        (b"permissions-policy", b"geolocation=(), microphone=(), camera=()"),
+                        (b"x-qumail-version", b"1.0.0-secure")
+                    ]
                     
-                    # Update headers
-                    headers.update(security_headers)
-                    message["headers"] = list(headers.items())
+                    # Get existing header names (lowercase for comparison)
+                    existing_names = {h[0].lower() for h in existing_headers}
+                    
+                    # Only add security headers that don't already exist
+                    for name, value in security_headers:
+                        if name.lower() not in existing_names:
+                            existing_headers.append((name, value))
+                    
+                    message["headers"] = existing_headers
                 
                 await send(message)
             
