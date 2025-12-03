@@ -300,8 +300,16 @@ app = FastAPI(
 # Add middleware (order matters - CORS must be first!)
 
 # 1. CORS middleware (MUST be first to handle preflight OPTIONS requests)
-# Parse allowed origins from comma-separated string
+# Parse allowed origins from comma-separated string and merge with critical defaults
 cors_origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
+mandatory_origins = [
+    "https://qumail-nine.vercel.app",
+    "https://qumail-frontend.vercel.app",
+    "https://qumail-frontend.netlify.app",
+]
+for origin in mandatory_origins:
+    if origin not in cors_origins:
+        cors_origins.append(origin)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
