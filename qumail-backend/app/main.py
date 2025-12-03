@@ -297,28 +297,28 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add middleware (order matters!)
+# Add middleware (order matters - CORS must be first!)
 
-# 0. GZip compression for faster response delivery
-app.add_middleware(GZipMiddleware, minimum_size=500)
-
-# 1. Security middleware (first)
-app.add_middleware(SecurityMiddleware)
-
-# 2. Rate limiting middleware
-app.add_middleware(RateLimitMiddleware, requests_per_minute=60)
-
-# 3. CORS middleware
+# 1. CORS middleware (MUST be first to handle preflight OPTIONS requests)
 # Parse allowed origins from comma-separated string
 cors_origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["X-QuMail-Version"]
 )
+
+# 2. GZip compression for faster response delivery
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# 3. Security middleware
+app.add_middleware(SecurityMiddleware)
+
+# 4. Rate limiting middleware
+app.add_middleware(RateLimitMiddleware, requests_per_minute=60)
 
 # Add exception handlers
 app.add_exception_handler(SecurityError, security_exception_handler)
