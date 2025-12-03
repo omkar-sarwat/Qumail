@@ -42,7 +42,7 @@ class GoogleOAuthService:
             "localhost": "http://localhost:5173/auth/callback",
             "electron": "http://localhost:5174/auth/callback",
             "netlify": "https://temp2mgm.netlify.app/auth/callback",
-            "vercel": "https://qumail-frontend.vercel.app/auth/callback",
+            "vercel": "https://qumail-mgxdzhdab-sarswatomkar8625-1872s-projects.vercel.app/auth/callback",
         }
         # Default redirect URI from env or localhost
         self.redirect_uri = getattr(settings, 'google_redirect_uri', None) or self.redirect_uris["localhost"]
