@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     
     # CORS and security - include all deployment origins
     allowed_origins: str = Field(
-        default="http://localhost:3000,http://localhost:5173,https://temp2mgm.netlify.app,https://qumail-mgxdzhdab-sarswatomkar8625-1872s-projects.vercel.app,https://qumail-frontend.vercel.app,https://qumail-frontend.netlify.app", 
+        default="http://localhost:3000,http://localhost:5173,https://temp2mgm.netlify.app,https://qumail-nine.vercel.app,https://qumail-frontend.vercel.app,https://qumail-frontend.netlify.app", 
         alias="ALLOWED_ORIGINS"
     )
     cors_enabled: bool = Field(default=True, alias="CORS_ENABLED")
