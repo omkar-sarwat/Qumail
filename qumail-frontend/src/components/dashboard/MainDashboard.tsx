@@ -867,6 +867,7 @@ export const MainDashboard: React.FC = () => {
             onCompose={handleCompose}
             emailCounts={emailCounts}
             onNavigateToView={(view) => setCurrentView(view as DashboardView)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
             isCompact={isSidebarCollapsed}
             currentView={currentView}
             keyManagerLoggedIn={keyManagerAuth.isLoggedIn}

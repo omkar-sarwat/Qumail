@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "QuMail",
+    "slug": "qumail-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "scheme": [
+      "qumail",
+      "com.googleusercontent.apps.YOUR_IOS_CLIENT_ID"
+    ],
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F0F23"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.qumail.app",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "QuMail uses Face ID for secure authentication",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.YOUR_IOS_CLIENT_ID"
+            ]
+          }
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F0F23"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.qumail.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "extra": {
+      "apiUrl": "https://qumail-backend-gwec.onrender.com",
+      "googleClientIdWeb": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+      "googleClientIdIos": "YOUR_IOS_CLIENT_ID.apps.googleusercontent.com"
+    }
+  }
+}

@@ -307,15 +307,17 @@ electron_1.app.whenReady().then(function () { return __awaiter(void 0, void 0, v
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                _a.trys.push([0, 2, , 3]);
+                _a.trys.push([0, 3, , 4]);
                 console.log('[App] =================================================');
                 console.log('[App] Starting QuMail Secure Email...');
                 console.log('[App] Process ID:', process.pid);
                 console.log('[App] Is Dev Mode:', isDev);
                 console.log('[App] =================================================');
-                // Initialize local SQLite database
+                // Initialize local SQLite database (sql.js is async)
                 console.log('[App] Initializing local database...');
-                database.initDatabase();
+                return [4 /*yield*/, database.initDatabaseAsync()];
+            case 1:
+                _a.sent();
                 console.log('[App] Local database initialized!');
                 gotTheLock = electron_1.app.requestSingleInstanceLock();
                 if (!gotTheLock) {
@@ -335,7 +337,7 @@ electron_1.app.whenReady().then(function () { return __awaiter(void 0, void 0, v
                 console.log('[App] Using Render backend:', BACKEND_URL);
                 console.log('[App] KME servers on Render:', KME1_URL, KME2_URL);
                 return [4 /*yield*/, checkBackendServer()];
-            case 1:
+            case 2:
                 _a.sent();
                 console.log('[App] Backend check complete!');
                 console.log('[App] Creating main window...');
@@ -343,14 +345,14 @@ electron_1.app.whenReady().then(function () { return __awaiter(void 0, void 0, v
                 createTray();
                 createMenu();
                 console.log('[App] QuMail is ready!');
-                return [3 /*break*/, 3];
-            case 2:
+                return [3 /*break*/, 4];
+            case 3:
                 error_2 = _a.sent();
                 console.error('[App] Failed to start:', error_2);
                 electron_1.dialog.showErrorBox('Startup Error', 'Failed to start QuMail backend services. Please check the logs and try again.');
                 electron_1.app.quit();
-                return [3 /*break*/, 3];
-            case 3: return [2 /*return*/];
+                return [3 /*break*/, 4];
+            case 4: return [2 /*return*/];
         }
     });
 }); });

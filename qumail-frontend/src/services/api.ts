@@ -753,6 +753,269 @@ class ApiService {
     const response = await this.api.get<Array<{ id: string; name: string; count?: number }>>(this.withPrefix('/emails/folders'))
     return response.data
   }
+
+  // =====================================================
+  // EMAIL PROVIDER SETTINGS API
+  // =====================================================
+
+  // Detect email provider by email address
+  async detectProvider(email: string): Promise<{
+    mode: 'preset' | 'manual'
+    provider: string
+    settings: {
+      name: string
+      domains: string[]
+      smtp_host: string
+      smtp_port: number
+      smtp_security: string
+      imap_host: string
+      imap_port: number
+      imap_security: string
+      notes: string
+    } | null
+  }> {
+    const response = await this.api.post(this.withPrefix('/providers/detect'), { email })
+    return response.data
+  }
+
+  // List all preset providers
+  async listProviders(): Promise<Array<{
+    name: string
+    domains: string[]
+    smtp_host: string
+    smtp_port: number
+    smtp_security: string
+    imap_host: string
+    imap_port: number
+    imap_security: string
+    notes: string
+  }>> {
+    const response = await this.api.get(this.withPrefix('/providers/list'))
+    return response.data
+  }
+
+  // Test IMAP connection
+  async testImapConnection(config: {
+    host: string
+    port: number
+    security: string
+    username: string
+    password: string
+  }): Promise<{ status: string; message: string; capabilities?: string }> {
+    const response = await this.api.post(this.withPrefix('/providers/test/imap'), config)
+    return response.data
+  }
+
+  // Test SMTP connection
+  async testSmtpConnection(config: {
+    host: string
+    port: number
+    security: string
+    username: string
+    password: string
+  }): Promise<{ status: string; message: string }> {
+    const response = await this.api.post(this.withPrefix('/providers/test/smtp'), config)
+    return response.data
+  }
+
+  // Test POP3 connection (for providers like Rediffmail)
+  async testPop3Connection(config: {
+    host: string
+    port: number
+    security: string
+    username: string
+    password: string
+  }): Promise<{ status: string; message: string }> {
+    const response = await this.api.post(this.withPrefix('/providers/test/pop3'), config)
+    return response.data
+  }
+
+  // List IMAP folders
+  async listImapFolders(config: {
+    host: string
+    port: number
+    security: string
+    username: string
+    password: string
+  }): Promise<{ status: string; folders: string[] }> {
+    const response = await this.api.post(this.withPrefix('/providers/folders'), config)
+    return response.data
+  }
+
+  // ========================================
+  // Multi-Provider Email API (IMAP/POP3/SMTP)
+  // ========================================
+
+  // Account settings interface
+  private formatAccountSettings(account: {
+    email: string
+    password: string
+    settings: {
+      smtp_host: string
+      smtp_port: number
+      smtp_security: string
+      imap_host: string
+      imap_port: number
+      imap_security: string
+      protocol: string
+    }
+  }) {
+    return {
+      email: account.email,
+      password: account.password,
+      smtp_host: account.settings.smtp_host,
+      smtp_port: account.settings.smtp_port,
+      smtp_security: account.settings.smtp_security,
+      imap_host: account.settings.imap_host,
+      imap_port: account.settings.imap_port,
+      imap_security: account.settings.imap_security,
+      protocol: account.settings.protocol,
+    }
+  }
+
+  // Fetch emails from any provider via IMAP/POP3
+  async fetchProviderEmails(account: {
+    email: string
+    password: string
+    settings: {
+      smtp_host: string
+      smtp_port: number
+      smtp_security: string
+      imap_host: string
+      imap_port: number
+      imap_security: string
+      protocol: string
+    }
+  }, options: {
+    folder?: string
+    maxResults?: number
+    offset?: number
+  } = {}): Promise<{
+    emails: Array<{
+      id: string
+      message_id: string
+      thread_id: string
+      subject: string
+      from_address: string
+      from_name: string
+      to_address: string
+      to_name: string
+      cc_address: string | null
+      body_text: string
+      body_html: string | null
+      timestamp: string
+      is_read: boolean
+      has_attachments: boolean
+      folder: string
+    }>
+    total_count: number
+  }> {
+    const response = await this.api.post(this.withPrefix('/provider-email/fetch'), {
+      account: this.formatAccountSettings(account),
+      folder: options.folder || 'INBOX',
+      max_results: options.maxResults || 50,
+      offset: options.offset || 0,
+    })
+    return response.data
+  }
+
+  // Send email via any provider SMTP
+  async sendProviderEmail(account: {
+    email: string
+    password: string
+    settings: {
+      smtp_host: string
+      smtp_port: number
+      smtp_security: string
+      imap_host: string
+      imap_port: number
+      imap_security: string
+      protocol: string
+    }
+  }, emailData: {
+    to_address: string
+    subject: string
+    body_text: string
+    body_html?: string
+    cc_address?: string
+    bcc_address?: string
+    security_level?: number
+  }): Promise<{
+    success: boolean
+    message_id: string | null
+    message: string
+  }> {
+    const response = await this.api.post(this.withPrefix('/provider-email/send'), {
+      account: this.formatAccountSettings(account),
+      ...emailData,
+    })
+    return response.data
+  }
+
+  // List folders for provider account
+  async listProviderFolders(account: {
+    email: string
+    password: string
+    settings: {
+      smtp_host: string
+      smtp_port: number
+      smtp_security: string
+      imap_host: string
+      imap_port: number
+      imap_security: string
+      protocol: string
+    }
+  }): Promise<{ folders: string[] }> {
+    const response = await this.api.post(
+      this.withPrefix('/provider-email/folders'),
+      this.formatAccountSettings(account)
+    )
+    return response.data
+  }
+
+  // Mark email as read
+  async markProviderEmailRead(account: {
+    email: string
+    password: string
+    settings: {
+      smtp_host: string
+      smtp_port: number
+      smtp_security: string
+      imap_host: string
+      imap_port: number
+      imap_security: string
+      protocol: string
+    }
+  }, messageId: string, folder: string = 'INBOX'): Promise<{ success: boolean }> {
+    const response = await this.api.post(this.withPrefix('/provider-email/mark-read'), {
+      account: this.formatAccountSettings(account),
+      message_id: messageId,
+      folder,
+    })
+    return response.data
+  }
+
+  // Delete email
+  async deleteProviderEmail(account: {
+    email: string
+    password: string
+    settings: {
+      smtp_host: string
+      smtp_port: number
+      smtp_security: string
+      imap_host: string
+      imap_port: number
+      imap_security: string
+      protocol: string
+    }
+  }, messageId: string, folder: string = 'INBOX'): Promise<{ success: boolean }> {
+    const response = await this.api.post(this.withPrefix('/provider-email/delete'), {
+      account: this.formatAccountSettings(account),
+      message_id: messageId,
+      folder,
+    })
+    return response.data
+  }
 }
 
 export const apiService = new ApiService()

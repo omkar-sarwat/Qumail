@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Button } from '../ui/Button'
 import { offlineService } from '../../services/offlineService'
+import { useAuth } from '../../context/AuthContext'
 
 interface User {
   id: string
@@ -36,6 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   isRefreshing = false
 }) => {
+  const { logout } = useAuth()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
@@ -91,11 +93,12 @@ export const Header: React.FC<HeaderProps> = ({
     }
   }, [searchQuery])
 
-  const handleLogout = () => {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
-    localStorage.removeItem('user')
-    window.location.href = '/login'
+  const handleLogout = async () => {
+    await logout()
+    // Ensure HashRouter navigation lands on login
+    if (window.location.hash !== '#/' && window.location.hash !== '#') {
+      window.location.hash = '#/'
+    }
   }
 
       return (

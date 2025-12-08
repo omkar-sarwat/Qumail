@@ -1,5 +1,6 @@
 import React from 'react'
 import { Button } from '../ui/Button'
+import { AccountSwitcher } from '../ui/AccountSwitcher'
 
 interface SidebarProps {
   activeFolder: string
@@ -12,6 +13,7 @@ interface SidebarProps {
     trash: number
   }
   onNavigateToView?: (view: string) => void
+  onOpenSettings?: () => void
   isCompact?: boolean
   currentView?: string
   keyManagerLoggedIn?: boolean
@@ -27,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCompose,
   emailCounts,
   onNavigateToView,
+  onOpenSettings,
   isCompact = false,
   currentView = 'email',
   keyManagerLoggedIn = false,
@@ -82,6 +85,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className={`${isCompact ? 'w-24' : 'w-64'} h-full bg-white border-y border-r border-gray-200 rounded-r-2xl shadow-sm flex flex-col flex-shrink-0 transition-[width] duration-300 ease-in-out z-20 relative overflow-y-auto overflow-x-hidden will-change-[width]`}>
+      {/* Account Switcher */}
+      {!isCompact && (
+        <div className="p-3 border-b border-gray-100 dark:border-gray-800">
+          <AccountSwitcher onOpenSettings={onOpenSettings} compact={isCompact} />
+        </div>
+      )}
+
       {/* Modern Compose Button */}
       <div className="p-5 flex justify-center border-b border-gray-100 dark:border-gray-800">
         <Button
