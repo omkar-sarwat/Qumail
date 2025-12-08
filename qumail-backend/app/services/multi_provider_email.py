@@ -427,7 +427,7 @@ class MultiProviderEmailClient:
 
         logger.info(
             f"📤 Sending email via SMTP: {smtp_host}:{smtp_port}"
-            + f" (relay)" if use_relay else ""
+            + (" (relay)" if use_relay else "")
             + f" | Sender: {sender_email}"
         )
         
@@ -440,18 +440,22 @@ class MultiProviderEmailClient:
             else:
                 msg = MIMEText(body_text, 'plain', 'utf-8')
             
-            # When using relay: Static From + Dynamic Reply-To
-            # This allows sending on behalf of ANY user without domain verification
-            # Receiver sees "QuMail" but replies go directly to the actual sender
+            # When using relay: Use the relay's verified sender + Dynamic Reply-To
+            # SMTP2GO requires verified domain/sender - use the relay username as sender
+            # Replies will go to the actual user via Reply-To header
             if use_relay:
-                # Static sender (doesn't need verified domain)
-                relay_from = os.getenv("SMTP_RELAY_FROM", "QuMail <noreply@qumail.app>")
-                msg['From'] = relay_from
+                # Use relay username as the From address (verified with SMTP2GO)
+                relay_from_email = os.getenv("SMTP_RELAY_FROM_EMAIL", relay_username)
+                relay_from_name = os.getenv("SMTP_RELAY_FROM_NAME", "QuMail Secure")
+                msg['From'] = f"{relay_from_name} <{relay_from_email}>"
                 # Dynamic Reply-To - replies go directly to the actual sender's email
                 msg['Reply-To'] = sender_email
-                logger.info(f"📧 Relay mode: From={relay_from}, Reply-To={sender_email}")
+                # Add X-Original-Sender header for transparency
+                msg['X-Original-Sender'] = sender_email
+                logger.info(f"📧 Relay mode: From={relay_from_email}, Reply-To={sender_email}")
             else:
                 # Direct SMTP - use user's actual email as From
+                msg['From'] = sender_email
                 msg['From'] = sender_email
             
             msg['To'] = to_address
