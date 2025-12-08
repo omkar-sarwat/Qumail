@@ -104,6 +104,12 @@ class CompleteEmailService:
                 # Fallback for legacy/RSA
                 metadata['signature'] = encryption_result['signature']
             
+            # Extract public keys for explicit MongoDB storage (Level 3 and 4)
+            rsa_public_key = metadata.get('public_key')  # Level 4
+            kem_public_key = metadata.get('kem_public_key') or metadata.get('kyber_public_key')  # Level 3
+            dsa_public_key = metadata.get('dsa_public_key') or metadata.get('dilithium_public_key')  # Level 3
+            private_key_ref = metadata.get('private_key_ref')  # Reference to local private key
+            
             email_repo = EmailRepository(db)
             email_doc = EmailDocument(
                 flow_id=flow_id,
@@ -124,7 +130,12 @@ class CompleteEmailService:
                 encryption_algorithm=encryption_result.get('algorithm'),
                 encryption_iv=metadata.get('nonce'),  # 'nonce' in tested functions
                 encryption_auth_tag=encryption_result.get('auth_tag') or encryption_result.get('signature'),  # Prefer auth_tag
-                encryption_metadata=metadata  # Stored as structured metadata for quick access
+                encryption_metadata=metadata,  # Stored as structured metadata for quick access
+                # Explicit public key fields for Level 3 and 4 (stored in MongoDB)
+                rsa_public_key=rsa_public_key,
+                kem_public_key=kem_public_key,
+                dsa_public_key=dsa_public_key,
+                private_key_ref=private_key_ref,
             )
             
             email = await email_repo.create(email_doc)

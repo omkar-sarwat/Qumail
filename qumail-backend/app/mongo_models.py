@@ -55,6 +55,11 @@ class EmailDocument(BaseModel):
     encryption_iv: Optional[str] = None
     encryption_auth_tag: Optional[str] = None
     encryption_metadata: Optional[Dict[str, Any]] = None
+    # Explicit public key fields for Level 3 and 4 (stored in MongoDB, private keys stay local)
+    rsa_public_key: Optional[str] = None  # Level 4: RSA-4096 public key (PEM, base64)
+    kem_public_key: Optional[str] = None  # Level 3: ML-KEM-1024 public key (base64)
+    dsa_public_key: Optional[str] = None  # Level 3: ML-DSA-87 public key (base64)
+    private_key_ref: Optional[str] = None  # Reference ID for local private key lookup
     security_level: int = 0
     direction: EmailDirection
     timestamp: datetime = Field(default_factory=datetime.utcnow)
