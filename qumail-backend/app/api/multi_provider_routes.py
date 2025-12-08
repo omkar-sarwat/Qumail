@@ -15,7 +15,7 @@ from ..services.multi_provider_email import (
     ProviderEmailSettings,
     EmailMessage
 )
-from ..services.provider_registry import detect_provider, get_provider_settings
+from ..services.provider_registry import detect_provider
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/provider-email", tags=["Multi-Provider Email"])
