@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Check, Mail, Plus, Settings } from 'lucide-react'
+import { ChevronDown, Check, Plus, Settings } from 'lucide-react'
 import { useEmailAccountsStore } from '../../stores/emailAccountsStore'
 
 interface AccountSwitcherProps {

@@ -1,6 +1,8 @@
 import React from 'react'
 import { Button } from '../ui/Button'
 import { AccountSwitcher } from '../ui/AccountSwitcher'
+import { useEmailAccountsStore } from '../../stores/emailAccountsStore'
+import { useEmailSyncStore } from '../../stores/emailSyncStore'
 
 interface SidebarProps {
   activeFolder: string
@@ -36,6 +38,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   keyManagerType = null,
   // selectedSecurityLevels, onSecurityLevelToggle, emails - removed, not used
 }) => {
+  // Get provider account count and unread count
+  const providerAccountCount = useEmailAccountsStore(state => state.accounts.length)
+  const providerUnreadCount = useEmailSyncStore(state => state.totalUnreadCount)
 
   const iconSize = isCompact ? 'w-5 h-5' : 'w-5 h-5'
   const iconWrapperSize = isCompact ? 'w-9 h-9' : 'w-4 h-4'
@@ -80,7 +85,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </svg>
       ),
       count: emailCounts.trash,
-    }
+    },
+    // Provider accounts inbox - only show if there are provider accounts
+    ...(providerAccountCount > 0 ? [{
+      id: 'provider_inbox',
+      name: 'Provider Inbox',
+      icon: (
+        <svg className={iconSize} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      ),
+      count: providerUnreadCount,
+      highlight: providerUnreadCount > 0,
+    }] : [])
   ]
 
   return (

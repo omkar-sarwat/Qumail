@@ -19,6 +19,7 @@ import toast from 'react-hot-toast'
 import { apiService } from '../../services/api'
 import { useEmailAccountsStore, EmailAccountSettings } from '../../stores/emailAccountsStore'
 import { storePassword, removePassword } from '../../utils/credentialStorage'
+import { emailSyncService } from '../../services/emailSyncService'
 
 interface AddAccountFormData {
   email: string
@@ -198,7 +199,18 @@ export const EmailAccountsSettings: React.FC = () => {
       foldersToSync: formData.foldersToSync,
     })
 
-    toast.success(`Account ${formData.email} added successfully!`)
+    // Start email sync for the new account (fetches initial 30 emails)
+    toast.success(`Account ${formData.email} added! Syncing emails...`)
+    
+    // Small delay to ensure account is stored before sync starts
+    setTimeout(() => {
+      const store = useEmailAccountsStore.getState()
+      const newAccount = store.accounts.find(a => a.email === formData.email)
+      if (newAccount) {
+        emailSyncService.startSync(newAccount.id)
+      }
+    }, 100)
+
     setFormData(initialFormData)
     setShowAddForm(false)
     setTestResults({ imap: null, smtp: null })

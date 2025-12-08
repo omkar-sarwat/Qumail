@@ -11,6 +11,8 @@ import QuantumDashboard from './QuantumDashboard'
 import { SettingsPanel } from './SettingsPanel'
 import { NewComposeEmailModal, QuantumSendSummary } from '../compose/NewComposeEmailModal'
 import { KeyVaultLogin, KeyManagerDashboard } from '../keymanager'
+import { ProviderEmailInbox } from './ProviderEmailInbox'
+import { SyncedEmail } from '../../services/emailSyncService'
 
 // Auto-refresh interval in milliseconds (30 seconds)
 const AUTO_REFRESH_INTERVAL = 30000
@@ -879,29 +881,63 @@ export const MainDashboard: React.FC = () => {
         </div>
 
         {currentView === 'email' ? (
-          <>
-            <div className="w-[28rem] flex-shrink-0 h-full">
-              <EmailList
-                emails={filteredEmails as any}
-                selectedEmail={selectedEmail as any}
-                onEmailSelect={(email) => handleEmailSelect(email as DashboardEmail)}
-                onToggleStar={handleToggleStar}
-                isLoading={isLoadingEmails}
-                activeFolder={activeFolder}
+          activeFolder === 'provider_inbox' ? (
+            // Provider Email Inbox - shows emails from all configured IMAP/POP3 accounts
+            <div className="flex-1 min-w-0 h-full rounded-2xl overflow-hidden bg-gray-900 border border-gray-700">
+              <ProviderEmailInbox 
+                onEmailSelect={(email: SyncedEmail, accountId: string) => {
+                  // Convert synced email to dashboard format for viewing
+                  const dashboardEmail: DashboardEmail = {
+                    id: email.id,
+                    email_id: email.id,
+                    timestamp: email.timestamp,
+                    subject: email.subject,
+                    body: email.body_text,
+                    bodyHtml: email.body_html || undefined,
+                    bodyText: email.body_text,
+                    sender: email.from_name || email.from_address,
+                    sender_name: email.from_name,
+                    sender_email: email.from_address,
+                    senderName: email.from_name,
+                    senderEmail: email.from_address,
+                    to: email.to_address,
+                    recipient: email.to_address,
+                    isRead: email.is_read,
+                    is_read: email.is_read,
+                    read: email.is_read,
+                    securityLevel: 0,
+                    encrypted: false,
+                    requires_decryption: false,
+                  }
+                  setSelectedEmail(dashboardEmail)
+                }}
               />
             </div>
+          ) : (
+            <>
+              <div className="w-[28rem] flex-shrink-0 h-full">
+                <EmailList
+                  emails={filteredEmails as any}
+                  selectedEmail={selectedEmail as any}
+                  onEmailSelect={(email) => handleEmailSelect(email as DashboardEmail)}
+                  onToggleStar={handleToggleStar}
+                  isLoading={isLoadingEmails}
+                  activeFolder={activeFolder}
+                />
+              </div>
 
-            <div className="flex-1 min-w-0 h-full">
-              <EmailViewer
-                email={selectedEmail as any}
-                onReply={handleReply}
-                onReplyAll={handleReplyAll}
-                onForward={handleForward}
-                onDelete={handleDeleteEmail}
-                onEmailDecrypted={handleEmailDecrypted}
-              />
-            </div>
-          </>
+              <div className="flex-1 min-w-0 h-full">
+                <EmailViewer
+                  email={selectedEmail as any}
+                  onReply={handleReply}
+                  onReplyAll={handleReplyAll}
+                  onForward={handleForward}
+                  onDelete={handleDeleteEmail}
+                  onEmailDecrypted={handleEmailDecrypted}
+                />
+              </div>
+            </>
+          )
         ) : currentView === 'keymanager' ? (
           <div className="flex-1 overflow-hidden rounded-2xl bg-white border border-gray-200 shadow-sm flex">
             {keyManagerAuth.isLoggedIn ? (

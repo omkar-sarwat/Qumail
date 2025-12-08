@@ -36,8 +36,14 @@ class ProviderEmailSettings:
     imap_port: int
     imap_security: str  # 'ssl' or 'starttls'
     protocol: str  # 'imap' or 'pop3'
-    username: str
+    username: str  # Login username (may differ from email)
     password: str
+    email: str = ""  # User's actual email address (for From/Reply-To)
+    
+    def __post_init__(self):
+        # If email not provided, use username as email
+        if not self.email:
+            self.email = self.username
 
 
 @dataclass
@@ -416,9 +422,13 @@ class MultiProviderEmailClient:
         smtp_port = relay_port if use_relay else settings.smtp_port
         smtp_security = relay_security if use_relay else settings.smtp_security
 
+        # Get user's actual email address
+        sender_email = settings.email or settings.username
+
         logger.info(
             f"📤 Sending email via SMTP: {smtp_host}:{smtp_port}"
-            + (" (relay)" if use_relay else "")
+            + f" (relay)" if use_relay else ""
+            + f" | Sender: {sender_email}"
         )
         
         try:
@@ -430,7 +440,20 @@ class MultiProviderEmailClient:
             else:
                 msg = MIMEText(body_text, 'plain', 'utf-8')
             
-            msg['From'] = settings.username
+            # When using relay: Static From + Dynamic Reply-To
+            # This allows sending on behalf of ANY user without domain verification
+            # Receiver sees "QuMail" but replies go directly to the actual sender
+            if use_relay:
+                # Static sender (doesn't need verified domain)
+                relay_from = os.getenv("SMTP_RELAY_FROM", "QuMail <noreply@qumail.app>")
+                msg['From'] = relay_from
+                # Dynamic Reply-To - replies go directly to the actual sender's email
+                msg['Reply-To'] = sender_email
+                logger.info(f"📧 Relay mode: From={relay_from}, Reply-To={sender_email}")
+            else:
+                # Direct SMTP - use user's actual email as From
+                msg['From'] = sender_email
+            
             msg['To'] = to_address
             msg['Subject'] = subject
             
@@ -469,14 +492,16 @@ class MultiProviderEmailClient:
             await smtp.send_message(msg, recipients=recipients)
             await smtp.quit()
             
-            logger.info(f"✅ Email sent successfully to {to_address}")
+            logger.info(f"✅ Email sent successfully from {sender_email} to {to_address}")
             
             return {
                 "success": True,
                 "message_id": msg.get('Message-ID'),
+                "from": sender_email,
                 "to": to_address,
                 "subject": subject,
-                "relay": use_relay
+                "relay": use_relay,
+                "reply_to": sender_email if use_relay else None
             }
             
         except Exception as e:
@@ -502,6 +527,115 @@ class MultiProviderEmailClient:
                     pass
         
         return folders
+    
+    async def fetch_new_emails_since(
+        self,
+        settings: ProviderEmailSettings,
+        since_message_id: Optional[str] = None,
+        folder: str = "INBOX",
+        max_results: int = 10
+    ) -> Tuple[List[EmailMessage], int]:
+        """
+        Fetch only new emails since the given message_id.
+        
+        Returns:
+            Tuple of (new_emails, total_new_count)
+        """
+        client = await self.connect_imap(settings)
+        
+        logger.info(f"📥 Checking for new emails in {folder} since {since_message_id}")
+        
+        await client.select(folder)
+        
+        # Search for all messages
+        _, data = await client.search('ALL')
+        message_numbers = data[0].split()
+        
+        total = len(message_numbers)
+        
+        if total == 0:
+            return [], 0
+        
+        # Get the most recent emails
+        message_numbers = message_numbers[-max_results:]
+        message_numbers.reverse()  # Most recent first
+        
+        new_emails = []
+        found_existing = False
+        
+        for msg_num in message_numbers:
+            try:
+                _, msg_data = await client.fetch(msg_num.decode(), '(RFC822 FLAGS)')
+                
+                if not msg_data or len(msg_data) < 2:
+                    continue
+                    
+                raw_email = msg_data[1]
+                if isinstance(raw_email, tuple):
+                    raw_email = raw_email[1]
+                    
+                msg = email.message_from_bytes(raw_email)
+                
+                msg_id = msg.get('Message-ID', '')
+                
+                # If we've reached the last known message, stop
+                if since_message_id and msg_id == since_message_id:
+                    found_existing = True
+                    break
+                
+                # Parse email details
+                subject = self._decode_header_value(msg.get('Subject', ''))
+                from_header = msg.get('From', '')
+                from_name, from_address = parseaddr(from_header)
+                from_name = self._decode_header_value(from_name) or from_address.split('@')[0]
+                
+                to_header = msg.get('To', '')
+                to_name, to_address = parseaddr(to_header)
+                to_name = self._decode_header_value(to_name) or to_address.split('@')[0] if to_address else ''
+                
+                cc_header = msg.get('Cc', '')
+                
+                date_str = msg.get('Date', '')
+                try:
+                    from email.utils import parsedate_to_datetime
+                    date = parsedate_to_datetime(date_str)
+                except:
+                    date = datetime.now()
+                
+                body_text, body_html = self._extract_email_body(msg)
+                
+                # Determine read status from FLAGS
+                is_read = b'\\Seen' in msg_data[0] if msg_data[0] else False
+                
+                email_msg = EmailMessage(
+                    id=msg_num.decode(),
+                    message_id=msg_id,
+                    thread_id=msg.get('References', msg_id)[:64] if msg.get('References') else msg_id,
+                    subject=subject,
+                    from_address=from_address,
+                    from_name=from_name,
+                    to_address=to_address,
+                    to_name=to_name,
+                    cc_address=cc_header if cc_header else None,
+                    body_text=body_text,
+                    body_html=body_html,
+                    date=date,
+                    is_read=is_read,
+                    has_attachments=self._has_attachments(msg),
+                    folder=folder,
+                    raw_email=raw_email
+                )
+                
+                new_emails.append(email_msg)
+                
+            except Exception as e:
+                logger.warning(f"Failed to parse email {msg_num}: {e}")
+                continue
+        
+        new_count = len(new_emails)
+        logger.info(f"✅ Found {new_count} new emails in {folder}")
+        
+        return new_emails, new_count
     
     async def mark_as_read_imap(
         self,

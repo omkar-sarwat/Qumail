@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast'
 import { LoginScreen } from './components/auth/LoginScreen'
 import { OAuthCallback } from './components/auth/OAuthCallback'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { EmailSyncProvider } from './services/EmailSyncProvider'
 import { TitleBar } from './components/TitleBar'
 import SplashScreen from './components/SplashScreen'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -128,7 +129,9 @@ const App: React.FC = () => {
     <ErrorBoundary>
       <Router>
         <AuthProvider>
-          <AppContent />
+          <EmailSyncProvider>
+            <AppContent />
+          </EmailSyncProvider>
         </AuthProvider>
       </Router>
     </ErrorBoundary>

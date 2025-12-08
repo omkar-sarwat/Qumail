@@ -96,8 +96,9 @@ def _convert_to_provider_settings(account: AccountSettingsRequest) -> ProviderEm
         imap_port=account.imap_port,
         imap_security=account.imap_security,
         protocol=account.protocol,
-        username=account.email,
-        password=account.password
+        username=account.email,  # Use email as login username
+        password=account.password,
+        email=account.email,  # User's actual email for From/Reply-To
     )
 
 
@@ -282,6 +283,72 @@ class DeleteEmailRequest(BaseModel):
     account: AccountSettingsRequest
     message_id: str
     folder: str = "INBOX"
+
+
+class SyncEmailsRequest(BaseModel):
+    """Request to sync new emails since last check"""
+    account: AccountSettingsRequest
+    since_message_id: Optional[str] = None
+    folder: str = "INBOX"
+    max_results: int = 10
+
+
+@router.post("/sync")
+async def sync_emails(request: SyncEmailsRequest):
+    """
+    Sync new emails since last message ID.
+    
+    More efficient than full fetch - only returns emails newer than since_message_id.
+    Used for continuous polling.
+    """
+    logger.info(f"🔄 Syncing emails for {request.account.email} since {request.since_message_id}")
+    
+    try:
+        settings = _convert_to_provider_settings(request.account)
+        
+        if settings.protocol == 'pop3':
+            # POP3 doesn't support efficient sync, do full fetch
+            loop = asyncio.get_event_loop()
+            emails = await loop.run_in_executor(
+                None,
+                multi_provider_client.fetch_emails_pop3,
+                settings,
+                request.max_results
+            )
+            
+            # Filter out already-seen emails client-side
+            response_emails = [_email_to_response(e) for e in emails]
+            
+            return {
+                "emails": response_emails,
+                "new_count": len(response_emails),
+                "protocol": "pop3"
+            }
+        else:
+            # IMAP supports efficient sync
+            new_emails, new_count = await multi_provider_client.fetch_new_emails_since(
+                settings,
+                since_message_id=request.since_message_id,
+                folder=request.folder,
+                max_results=request.max_results
+            )
+            
+            response_emails = [_email_to_response(e) for e in new_emails]
+            
+            logger.info(f"✅ Sync found {new_count} new emails for {request.account.email}")
+            
+            return {
+                "emails": response_emails,
+                "new_count": new_count,
+                "protocol": "imap"
+            }
+        
+    except Exception as e:
+        logger.error(f"❌ Sync failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Sync failed: {str(e)}"
+        )
 
 
 @router.post("/delete")

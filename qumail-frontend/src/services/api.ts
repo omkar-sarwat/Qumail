@@ -1016,6 +1016,53 @@ class ApiService {
     })
     return response.data
   }
+
+  // Sync new emails since last message ID (more efficient polling)
+  async syncProviderEmails(account: {
+    email: string
+    password: string
+    settings: {
+      smtp_host: string
+      smtp_port: number
+      smtp_security: string
+      imap_host: string
+      imap_port: number
+      imap_security: string
+      protocol: string
+    }
+  }, options: {
+    sinceMessageId?: string
+    folder?: string
+    maxResults?: number
+  } = {}): Promise<{
+    emails: Array<{
+      id: string
+      message_id: string
+      thread_id: string
+      subject: string
+      from_address: string
+      from_name: string
+      to_address: string
+      to_name: string
+      cc_address: string | null
+      body_text: string
+      body_html: string | null
+      timestamp: string
+      is_read: boolean
+      has_attachments: boolean
+      folder: string
+    }>
+    new_count: number
+    protocol: string
+  }> {
+    const response = await this.api.post(this.withPrefix('/provider-email/sync'), {
+      account: this.formatAccountSettings(account),
+      since_message_id: options.sinceMessageId,
+      folder: options.folder || 'INBOX',
+      max_results: options.maxResults || 10,
+    })
+    return response.data
+  }
 }
 
 export const apiService = new ApiService()
