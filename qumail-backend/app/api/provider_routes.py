@@ -136,3 +136,72 @@ async def list_folders(config: ConnectionConfig):
     except Exception as exc:
         logger.error("Folder list failed: %s", exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Folder listing failed: {exc}")
+
+
+@router.get("/test/smtp2go")
+async def test_smtp2go_relay():
+    """
+    Test SMTP2GO relay connection from server (Render).
+    Uses env vars: SMTP_RELAY_HOST, SMTP_RELAY_PORT, SMTP_RELAY_USERNAME, SMTP_RELAY_PASSWORD
+    """
+    import os
+    import aiosmtplib
+    
+    host = os.getenv("SMTP_RELAY_HOST", "mail.smtp2go.com")
+    port = int(os.getenv("SMTP_RELAY_PORT", "2525"))
+    security = os.getenv("SMTP_RELAY_SECURITY", "starttls").lower()
+    username = os.getenv("SMTP_RELAY_USERNAME", "")
+    password = os.getenv("SMTP_RELAY_PASSWORD", "")
+    
+    if not username or not password:
+        return {
+            "status": "error",
+            "message": "SMTP_RELAY_USERNAME and SMTP_RELAY_PASSWORD env vars not set",
+            "host": host,
+            "port": port,
+        }
+    
+    results = []
+    ports_to_try = [
+        (port, security == "ssl", security == "starttls"),
+        (2525, False, True),
+        (8025, False, True),
+        (587, False, True),
+        (465, True, False),
+    ]
+    # Remove duplicates
+    seen = set()
+    unique_ports = []
+    for p in ports_to_try:
+        if p[0] not in seen:
+            seen.add(p[0])
+            unique_ports.append(p)
+    
+    working_port = None
+    for test_port, use_tls, start_tls in unique_ports:
+        try:
+            smtp = aiosmtplib.SMTP(
+                hostname=host,
+                port=test_port,
+                use_tls=use_tls,
+                start_tls=start_tls,
+                timeout=20,
+                validate_certs=False,
+            )
+            await smtp.connect()
+            await smtp.ehlo()
+            await smtp.login(username, password)
+            await smtp.quit()
+            results.append({"port": test_port, "status": "ok", "use_tls": use_tls, "start_tls": start_tls})
+            working_port = test_port
+            break
+        except Exception as e:
+            results.append({"port": test_port, "status": "failed", "error": f"{type(e).__name__}: {str(e)}"})
+    
+    return {
+        "status": "ok" if working_port else "all_failed",
+        "working_port": working_port,
+        "host": host,
+        "username": username,
+        "tests": results,
+    }
