@@ -430,13 +430,16 @@ class MultiProviderEmailClient:
             
             # Connect and send
             if settings.smtp_security == 'ssl':
+                # Port 465: Implicit TLS
                 smtp = aiosmtplib.SMTP(
                     hostname=settings.smtp_host,
                     port=settings.smtp_port,
                     use_tls=True,
-                    timeout=30
+                    timeout=30,
+                    validate_certs=False  # Handle servers with cert issues
                 )
             else:
+                # Port 587: STARTTLS
                 smtp = aiosmtplib.SMTP(
                     hostname=settings.smtp_host,
                     port=settings.smtp_port,

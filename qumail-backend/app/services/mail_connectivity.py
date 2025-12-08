@@ -20,21 +20,38 @@ def _validate_connection_params(host: str, port: int, username: str, password: s
         raise ValueError("Password cannot be empty")
 
 
-async def test_smtp_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 15.0) -> Dict[str, str]:
+async def test_smtp_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 30.0) -> Dict[str, str]:
     # Validate inputs first
     _validate_connection_params(host, port, username, password)
     host = host.strip()
     
     security = security.lower()
-    start_tls = security == "starttls"
-    use_tls = security == "ssl"
-
-    smtp = aiosmtplib.SMTP(hostname=host, port=port, start_tls=start_tls, use_tls=use_tls, timeout=timeout)
-    await smtp.connect()
+    
     try:
+        if security == "ssl":
+            # Port 465: Implicit TLS - connection starts with SSL
+            smtp = aiosmtplib.SMTP(
+                hostname=host,
+                port=port,
+                use_tls=True,
+                timeout=timeout,
+                validate_certs=False  # Some servers have cert issues
+            )
+        else:
+            # Port 587: STARTTLS - starts plain, upgrades to TLS
+            smtp = aiosmtplib.SMTP(
+                hostname=host,
+                port=port,
+                start_tls=True if security == "starttls" else False,
+                timeout=timeout
+            )
+        
+        await smtp.connect()
         await smtp.ehlo()
         await smtp.login(username, password)
         return {"status": "ok", "message": "SMTP login succeeded"}
+    except Exception as e:
+        raise Exception(f"SMTP connection failed: {str(e)}")
     finally:
         try:
             await smtp.quit()
