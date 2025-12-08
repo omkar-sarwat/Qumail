@@ -409,27 +409,58 @@ class MultiProviderEmailClient:
         bcc_address: Optional[str] = None,
         attachments: Optional[List[Dict]] = None
     ) -> Dict[str, Any]:
-        """Send email via SMTP"""
-        # Apply relay override if configured to bypass blocked ports (Render etc.)
+        """Send email via SMTP
+        
+        Supports multiple sending strategies:
+        1. Gmail SMTP (recommended): Set GMAIL_SMTP_EMAIL and GMAIL_SMTP_APP_PASSWORD
+           - Uses Gmail's reliable SMTP on port 587
+           - Works from Render (not blocked)
+           - Sends "on behalf of" the user with Reply-To
+        2. SMTP Relay (SMTP2GO etc): Set SMTP_RELAY_HOST, etc.
+        3. Direct SMTP: Use provider's SMTP directly (may be blocked on Render)
+        """
+        # Strategy 1: Gmail SMTP (most reliable for Render)
+        gmail_smtp_email = os.getenv("GMAIL_SMTP_EMAIL")
+        gmail_smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD")
+        
+        # Strategy 2: Generic SMTP relay (SMTP2GO, etc.)
         relay_host = os.getenv("SMTP_RELAY_HOST")
         relay_port = int(os.getenv("SMTP_RELAY_PORT") or 2525) if relay_host else settings.smtp_port
         relay_security = os.getenv("SMTP_RELAY_SECURITY", settings.smtp_security).lower()
         relay_username = os.getenv("SMTP_RELAY_USERNAME", settings.username)
         relay_password = os.getenv("SMTP_RELAY_PASSWORD", settings.password)
+        
+        # Determine which strategy to use
+        use_gmail_smtp = bool(gmail_smtp_email and gmail_smtp_password)
+        use_relay = bool(relay_host) and not use_gmail_smtp
+        
+        if use_gmail_smtp:
+            # Gmail SMTP settings
+            smtp_host = "smtp.gmail.com"
+            smtp_port = 587
+            smtp_security = "starttls"
+            smtp_username = gmail_smtp_email
+            smtp_password = gmail_smtp_password
+            logger.info(f"📤 Using Gmail SMTP for sending (on behalf of {settings.email or settings.username})")
+        elif use_relay:
+            smtp_host = relay_host
+            smtp_port = relay_port
+            smtp_security = relay_security
+            smtp_username = relay_username
+            smtp_password = relay_password
+            logger.info(f"📤 Using SMTP relay: {smtp_host}:{smtp_port}")
+        else:
+            smtp_host = settings.smtp_host
+            smtp_port = settings.smtp_port
+            smtp_security = settings.smtp_security
+            smtp_username = settings.username
+            smtp_password = settings.password
+            logger.info(f"📤 Using direct SMTP: {smtp_host}:{smtp_port}")
 
-        use_relay = bool(relay_host)
-        smtp_host = relay_host if use_relay else settings.smtp_host
-        smtp_port = relay_port if use_relay else settings.smtp_port
-        smtp_security = relay_security if use_relay else settings.smtp_security
-
-        # Get user's actual email address
+        # Get user's actual email address (the one they want replies to go to)
         sender_email = settings.email or settings.username
 
-        logger.info(
-            f"📤 Sending email via SMTP: {smtp_host}:{smtp_port}"
-            + (" (relay)" if use_relay else "")
-            + f" | Sender: {sender_email}"
-        )
+        logger.info(f"📤 Sending to: {to_address} | On behalf of: {sender_email}")
         
         try:
             # Create message
@@ -440,22 +471,27 @@ class MultiProviderEmailClient:
             else:
                 msg = MIMEText(body_text, 'plain', 'utf-8')
             
-            # When using relay: Use the relay's verified sender + Dynamic Reply-To
-            # SMTP2GO requires verified domain/sender - use the relay username as sender
-            # Replies will go to the actual user via Reply-To header
-            if use_relay:
-                # Use relay username as the From address (verified with SMTP2GO)
-                relay_from_email = os.getenv("SMTP_RELAY_FROM_EMAIL", relay_username)
-                relay_from_name = os.getenv("SMTP_RELAY_FROM_NAME", "QuMail Secure")
-                msg['From'] = f"{relay_from_name} <{relay_from_email}>"
-                # Dynamic Reply-To - replies go directly to the actual sender's email
-                msg['Reply-To'] = sender_email
-                # Add X-Original-Sender header for transparency
+            # Set From header based on sending strategy
+            if use_gmail_smtp:
+                # Gmail SMTP: Send "on behalf of" with Reply-To pointing to actual user
+                gmail_from_name = os.getenv("GMAIL_SMTP_FROM_NAME", "QuMail Secure")
+                msg['From'] = f"{gmail_from_name} <{gmail_smtp_email}>"
+                msg['Reply-To'] = sender_email  # Replies go to actual user
                 msg['X-Original-Sender'] = sender_email
-                logger.info(f"📧 Relay mode: From={relay_from_email}, Reply-To={sender_email}")
+                logger.info(f"📧 Gmail SMTP: From={gmail_smtp_email}, Reply-To={sender_email}")
+            elif use_relay:
+                # SMTP Relay: May require verified sender
+                relay_from_email = os.getenv("SMTP_RELAY_FROM_EMAIL")
+                if relay_from_email:
+                    relay_from_name = os.getenv("SMTP_RELAY_FROM_NAME", "QuMail Secure")
+                    msg['From'] = f"{relay_from_name} <{relay_from_email}>"
+                else:
+                    msg['From'] = sender_email
+                msg['Reply-To'] = sender_email
+                msg['X-Original-Sender'] = sender_email
+                logger.info(f"📧 Relay mode: Reply-To={sender_email}")
             else:
-                # Direct SMTP - use user's actual email as From
-                msg['From'] = sender_email
+                # Direct SMTP - use user's actual email
                 msg['From'] = sender_email
             
             msg['To'] = to_address
@@ -479,7 +515,7 @@ class MultiProviderEmailClient:
                     port=smtp_port,
                     use_tls=True,
                     timeout=45,
-                    validate_certs=False  # Handle servers with cert issues
+                    validate_certs=False
                 )
             else:
                 # Port 587/2525: STARTTLS
@@ -491,12 +527,11 @@ class MultiProviderEmailClient:
                 )
             
             await smtp.connect()
-            await smtp.login(relay_username if use_relay else settings.username,
-                            relay_password if use_relay else settings.password)
+            await smtp.login(smtp_username, smtp_password)
             await smtp.send_message(msg, recipients=recipients)
             await smtp.quit()
             
-            logger.info(f"✅ Email sent successfully from {sender_email} to {to_address}")
+            logger.info(f"✅ Email sent successfully to {to_address}")
             
             return {
                 "success": True,
