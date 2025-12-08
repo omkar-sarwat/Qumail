@@ -8,7 +8,23 @@ import aiosmtplib
 import aioimaplib
 
 
+def _validate_connection_params(host: str, port: int, username: str, password: str) -> None:
+    """Validate connection parameters before attempting connection."""
+    if not host or not host.strip():
+        raise ValueError("Host cannot be empty")
+    if not isinstance(port, int) or port <= 0 or port > 65535:
+        raise ValueError(f"Invalid port: {port}")
+    if not username or not username.strip():
+        raise ValueError("Username cannot be empty")
+    if not password:
+        raise ValueError("Password cannot be empty")
+
+
 async def test_smtp_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 15.0) -> Dict[str, str]:
+    # Validate inputs first
+    _validate_connection_params(host, port, username, password)
+    host = host.strip()
+    
     security = security.lower()
     start_tls = security == "starttls"
     use_tls = security == "ssl"
@@ -27,32 +43,47 @@ async def test_smtp_connection(host: str, port: int, security: str, username: st
 
 
 async def test_imap_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 15.0) -> Dict[str, str]:
+    # Validate inputs first
+    _validate_connection_params(host, port, username, password)
+    host = host.strip()
+    
     security = security.lower()
     if security == "ssl":
-        imap = aioimaplib.IMAP4_SSL(host=host, port=port, timeout=timeout)
+        # Create SSL context with server_hostname for proper SSL handshake
+        ssl_context = ssl.create_default_context()
+        imap = aioimaplib.IMAP4_SSL(host=host, port=port, timeout=timeout, ssl_context=ssl_context)
     else:
         imap = aioimaplib.IMAP4(host=host, port=port, timeout=timeout)
     await imap.wait_hello_from_server()
     if security == "starttls":
-        await imap.starttls()
+        ssl_context = ssl.create_default_context()
+        await imap.starttls(ssl_context=ssl_context)
     await imap.login(username, password)
     try:
         typ, data = await imap.capability()
         capabilities = data[0].decode() if data else ""
     except Exception:
         capabilities = ""
+    await imap.logout()
     return {"status": "ok", "message": "IMAP login succeeded", "capabilities": capabilities}
 
 
 async def list_imap_folders(host: str, port: int, security: str, username: str, password: str, timeout: float = 20.0) -> List[str]:
+    # Validate inputs first
+    _validate_connection_params(host, port, username, password)
+    host = host.strip()
+    
     security = security.lower()
     if security == "ssl":
-        imap = aioimaplib.IMAP4_SSL(host=host, port=port, timeout=timeout)
+        # Create SSL context with server_hostname for proper SSL handshake
+        ssl_context = ssl.create_default_context()
+        imap = aioimaplib.IMAP4_SSL(host=host, port=port, timeout=timeout, ssl_context=ssl_context)
     else:
         imap = aioimaplib.IMAP4(host=host, port=port, timeout=timeout)
     await imap.wait_hello_from_server()
     if security == "starttls":
-        await imap.starttls()
+        ssl_context = ssl.create_default_context()
+        await imap.starttls(ssl_context=ssl_context)
     await imap.login(username, password)
     typ, mailboxes = await imap.list()
     folders: List[str] = []
@@ -71,6 +102,10 @@ async def list_imap_folders(host: str, port: int, security: str, username: str, 
 
 async def test_pop3_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 15.0) -> Dict[str, str]:
     """Test POP3 connection (sync, run in executor for async compat)."""
+    # Validate inputs first
+    _validate_connection_params(host, port, username, password)
+    host = host.strip()
+    
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _sync_pop3_test, host, port, security, username, password, timeout)
 

@@ -21,17 +21,24 @@ class ProviderDetection(BaseModel):
 
 
 class ConnectionConfig(BaseModel):
-    host: str
-    port: int
+    host: str = Field(..., min_length=1, description="Mail server hostname")
+    port: int = Field(..., gt=0, le=65535, description="Mail server port")
     security: str = Field(..., description="ssl or starttls")
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, description="Login username/email")
+    password: str = Field(..., min_length=1, description="Login password")
 
     def normalized_security(self) -> str:
         sec = self.security.lower()
         if sec not in ("ssl", "starttls"):
             raise ValueError("security must be 'ssl' or 'starttls'")
         return sec
+    
+    def validate_host(self) -> str:
+        """Return trimmed host, raise if empty after trimming."""
+        h = self.host.strip()
+        if not h:
+            raise ValueError("Host cannot be empty")
+        return h
 
 
 @router.post("/detect", response_model=ProviderDetection)
