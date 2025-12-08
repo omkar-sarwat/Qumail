@@ -31,7 +31,8 @@ interface EmailAccountsState {
   error: string | null
 
   // Actions
-  addAccount: (account: Omit<EmailAccount, 'id' | 'createdAt'>) => void
+  // Allow passing optional id to correlate with stored password
+  addAccount: (account: Omit<EmailAccount, 'createdAt'> & { id?: string }) => EmailAccount
   removeAccount: (id: string) => void
   updateAccount: (id: string, updates: Partial<EmailAccount>) => void
   setActiveAccount: (id: string | null) => void
@@ -51,15 +52,19 @@ export const useEmailAccountsStore = create<EmailAccountsState>()(
       error: null,
 
       addAccount: (account) => {
+        // If account already has an ID (pre-generated), use it
+        // Otherwise generate a new one
         const newAccount: EmailAccount = {
           ...account,
-          id: `acc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: (account as any).id || `acc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           createdAt: new Date().toISOString(),
         }
         set((state) => ({
           accounts: [...state.accounts, newAccount],
           activeAccountId: state.activeAccountId || newAccount.id,
         }))
+        // Return the new account for reference
+        return newAccount
       },
 
       removeAccount: (id) => {

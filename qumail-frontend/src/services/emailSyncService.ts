@@ -130,14 +130,21 @@ class EmailSyncService {
     const store = useEmailAccountsStore.getState()
     const account = store.accounts.find(a => a.id === accountId)
     
-    if (!account) return null
+    if (!account) {
+      console.error(`❌ Account not found in store: ${accountId}`)
+      console.log('Available accounts:', store.accounts.map(a => ({ id: a.id, email: a.email })))
+      return null
+    }
     
+    console.log(`🔑 Looking up password for account ${account.email} (ID: ${account.id})`)
     const password = getPassword(account.id)
     if (!password) {
-      console.warn(`No password found for account ${account.email}`)
+      console.error(`❌ No password found for account ${account.email} (ID: ${account.id})`)
+      console.log('Password lookup failed - check if storePassword was called with the same ID')
       return null
     }
 
+    console.log(`✅ Got credentials for ${account.email}`)
     return {
       email: account.email,
       password,
@@ -215,11 +222,17 @@ class EmailSyncService {
    */
   private async fetchInitialEmails(accountId: string) {
     const account = this.getAccountWithCredentials(accountId)
-    if (!account) return
+    if (!account) {
+      console.error(`❌ Cannot fetch emails - no credentials for ${accountId}`)
+      return
+    }
 
     const state = this.syncStates.get(accountId)!
     
     console.log(`📥 Fetching initial ${SYNC_CONFIG.initialFetchCount} emails for ${account.email}`)
+    console.log(`   Provider: ${account.provider}`)
+    console.log(`   Protocol: ${account.settings.protocol}`)
+    console.log(`   Host: ${account.settings.imap_host}:${account.settings.imap_port}`)
     
     try {
       const response = await apiService.fetchProviderEmails(account, {

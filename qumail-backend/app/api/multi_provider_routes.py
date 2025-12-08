@@ -3,12 +3,14 @@ Multi-provider email routes
 Supports any email provider via IMAP/POP3/SMTP
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional, Dict, Any
 import logging
 import asyncio
 from datetime import datetime
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from ..services.multi_provider_email import (
     multi_provider_client,
@@ -16,6 +18,8 @@ from ..services.multi_provider_email import (
     EmailMessage
 )
 from ..services.provider_registry import detect_provider
+from ..services.gmail_oauth import oauth_service
+from ..core.database import get_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/provider-email", tags=["Multi-Provider Email"])
@@ -52,6 +56,8 @@ class SendEmailRequest(BaseModel):
     cc_address: Optional[str] = None
     bcc_address: Optional[str] = None
     security_level: int = 0  # 0 = no encryption, 1-4 = quantum encryption levels
+    use_gmail_oauth: bool = False  # When true, send via Gmail SMTP XOAUTH2
+    gmail_email: Optional[EmailStr] = None  # Gmail account to send through
 
 
 class EmailResponse(BaseModel):
@@ -84,6 +90,14 @@ class SendEmailResponse(BaseModel):
     success: bool
     message_id: Optional[str]
     message: str
+
+
+class TestConnectionResponse(BaseModel):
+    """Test connection response"""
+    success: bool
+    protocol: str
+    message: str
+    details: Dict[str, Any]
 
 
 def _convert_to_provider_settings(account: AccountSettingsRequest) -> ProviderEmailSettings:
@@ -121,6 +135,110 @@ def _email_to_response(email_msg: EmailMessage) -> EmailResponse:
         has_attachments=email_msg.has_attachments,
         folder=email_msg.folder
     )
+
+
+@router.post("/test-connection", response_model=TestConnectionResponse)
+async def test_connection(account: AccountSettingsRequest):
+    """
+    Test connection to email provider (IMAP or POP3)
+    
+    Use this before adding an account to verify credentials work.
+    """
+    logger.info(f"🔌 Testing connection for {account.email} via {account.protocol}")
+    logger.info(f"   Host: {account.imap_host}:{account.imap_port} ({account.imap_security})")
+    
+    settings = _convert_to_provider_settings(account)
+    
+    try:
+        if settings.protocol == 'pop3':
+            # Test POP3 connection
+            import ssl
+            import poplib
+            
+            context = ssl.create_default_context()
+            
+            if settings.imap_security == 'ssl':
+                pop = poplib.POP3_SSL(
+                    settings.imap_host,
+                    settings.imap_port,
+                    context=context,
+                    timeout=30
+                )
+            else:
+                pop = poplib.POP3(
+                    settings.imap_host,
+                    settings.imap_port,
+                    timeout=30
+                )
+                if settings.imap_security == 'starttls':
+                    pop.stls(context=context)
+            
+            # Login
+            pop.user(settings.username)
+            pop.pass_(settings.password)
+            
+            # Get message count
+            num_messages = len(pop.list()[1])
+            
+            pop.quit()
+            
+            return TestConnectionResponse(
+                success=True,
+                protocol="pop3",
+                message=f"Successfully connected to POP3. Found {num_messages} messages.",
+                details={
+                    "host": settings.imap_host,
+                    "port": settings.imap_port,
+                    "security": settings.imap_security,
+                    "message_count": num_messages
+                }
+            )
+        else:
+            # Test IMAP connection
+            client = await multi_provider_client.connect_imap(settings)
+            
+            # List folders
+            _, folder_data = await client.list('', '*')
+            folder_count = len(folder_data) if folder_data else 0
+            
+            # Get inbox count
+            await client.select('INBOX')
+            _, data = await client.search('ALL')
+            message_count = len(data[0].split()) if data and data[0] else 0
+            
+            return TestConnectionResponse(
+                success=True,
+                protocol="imap",
+                message=f"Successfully connected to IMAP. Found {message_count} messages in INBOX.",
+                details={
+                    "host": settings.imap_host,
+                    "port": settings.imap_port,
+                    "security": settings.imap_security,
+                    "folder_count": folder_count,
+                    "inbox_message_count": message_count
+                }
+            )
+            
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ Connection test failed for {account.email}: {error_msg}")
+        
+        # Provide helpful error messages
+        if "authentication" in error_msg.lower() or "login" in error_msg.lower():
+            hint = "Check username/password. For Gmail/Yahoo, use App Password."
+        elif "timeout" in error_msg.lower():
+            hint = "Connection timed out. Check host/port settings."
+        elif "connection refused" in error_msg.lower():
+            hint = "Connection refused. Check host and port are correct."
+        elif "ssl" in error_msg.lower() or "tls" in error_msg.lower():
+            hint = "SSL/TLS error. Try changing security setting."
+        else:
+            hint = "Check your email provider settings."
+        
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Connection failed: {error_msg}. Hint: {hint}"
+        )
 
 
 @router.post("/fetch", response_model=EmailListResponse)
@@ -172,7 +290,10 @@ async def fetch_emails(request: FetchEmailsRequest):
 
 
 @router.post("/send", response_model=SendEmailResponse)
-async def send_email(request: SendEmailRequest):
+async def send_email(
+    request: SendEmailRequest,
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
     """
     Send email via SMTP
     
@@ -193,6 +314,22 @@ async def send_email(request: SendEmailRequest):
             # This would integrate with the existing encryption services
             pass
         
+        oauth_access_token: Optional[str] = None
+        oauth_user_email: Optional[str] = None
+
+        if request.use_gmail_oauth:
+            gmail_email = request.gmail_email or request.account.email
+            oauth_user_email = gmail_email
+            try:
+                oauth_access_token = await oauth_service.get_valid_access_token(gmail_email, db)
+                logger.info(f"✅ Gmail OAuth token acquired for {gmail_email}")
+            except Exception as token_err:
+                logger.error(f"❌ Gmail OAuth token fetch failed for {gmail_email}: {token_err}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Gmail OAuth token error: {token_err}"
+                )
+
         result = await multi_provider_client.send_email_smtp(
             settings,
             to_address=request.to_address,
@@ -200,7 +337,9 @@ async def send_email(request: SendEmailRequest):
             body_text=body_text,
             body_html=body_html,
             cc_address=request.cc_address,
-            bcc_address=request.bcc_address
+            bcc_address=request.bcc_address,
+            oauth_user_email=oauth_user_email,
+            oauth_access_token=oauth_access_token
         )
         
         logger.info(f"✅ Email sent successfully from {request.account.email}")

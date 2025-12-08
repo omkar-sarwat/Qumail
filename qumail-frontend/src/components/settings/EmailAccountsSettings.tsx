@@ -183,13 +183,15 @@ export const EmailAccountsSettings: React.FC = () => {
       return
     }
 
-    // Generate account ID
+    // Generate account ID upfront
     const accountId = `acc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
-    // Store password securely (separate from account data)
+    // Store password securely (with the SAME ID that will be used for the account)
     storePassword(accountId, formData.password)
 
-    addAccount({
+    // Add account with pre-generated ID so password lookup works
+    const newAccount = addAccount({
+      id: accountId,  // Pass the same ID so password can be found
       email: formData.email,
       displayName: formData.displayName || formData.email.split('@')[0],
       provider: formData.provider,
@@ -202,14 +204,10 @@ export const EmailAccountsSettings: React.FC = () => {
     // Start email sync for the new account (fetches initial 30 emails)
     toast.success(`Account ${formData.email} added! Syncing emails...`)
     
-    // Small delay to ensure account is stored before sync starts
-    setTimeout(() => {
-      const store = useEmailAccountsStore.getState()
-      const newAccount = store.accounts.find(a => a.email === formData.email)
-      if (newAccount) {
-        emailSyncService.startSync(newAccount.id)
-      }
-    }, 100)
+    console.log(`📧 Account added with ID: ${newAccount.id}, starting sync...`)
+    
+    // Start sync immediately since we have the account ID
+    emailSyncService.startSync(newAccount.id)
 
     setFormData(initialFormData)
     setShowAddForm(false)

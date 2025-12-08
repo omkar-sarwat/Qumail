@@ -46,6 +46,7 @@ from .api.decrypt_auth import router as decrypt_auth_router  # Google Authentica
 from .api.gmail_routes import router as gmail_router
 from .api.provider_routes import router as provider_router
 from .api.multi_provider_routes import router as multi_provider_router
+from .api.unified_email_routes import router as unified_email_router  # Unified outbound + separate inbound
 from .api.encryption_routes import router as encryption_router
 from .api.quantum_encryption_routes import router as quantum_encryption_router
 from .api.complete_email_routes import router as complete_email_router
@@ -359,6 +360,7 @@ app.include_router(complete_email_router)  # Complete email flow with encryption
 app.include_router(draft_router)  # Draft management with cross-device sync
 app.include_router(provider_router)
 app.include_router(multi_provider_router)  # Multi-provider IMAP/POP3/SMTP email
+app.include_router(unified_email_router)  # Unified: Send via Gmail API, Fetch via IMAP
 app.include_router(emails_router)
 app.include_router(quantum_router)
 app.include_router(km_status_router)

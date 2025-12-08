@@ -5,6 +5,7 @@ Supports IMAP/POP3/SMTP for any email provider
 
 import asyncio
 import email
+import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -407,41 +408,50 @@ class MultiProviderEmailClient:
         body_html: Optional[str] = None,
         cc_address: Optional[str] = None,
         bcc_address: Optional[str] = None,
-        attachments: Optional[List[Dict]] = None
+        attachments: Optional[List[Dict]] = None,
+        oauth_user_email: Optional[str] = None,
+        oauth_access_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """Send email via SMTP
-        
-        Supports multiple sending strategies:
-        1. Gmail SMTP (recommended): Set GMAIL_SMTP_EMAIL and GMAIL_SMTP_APP_PASSWORD
-           - Uses Gmail's reliable SMTP on port 587
-           - Works from Render (not blocked)
-           - Sends "on behalf of" the user with Reply-To
-        2. SMTP Relay (SMTP2GO etc): Set SMTP_RELAY_HOST, etc.
-        3. Direct SMTP: Use provider's SMTP directly (may be blocked on Render)
+
+        Sending strategies (priority order):
+        1) Gmail SMTP with OAuth (XOAUTH2) when oauth_access_token is provided.
+        2) Gmail SMTP with App Password (GMAIL_SMTP_EMAIL + GMAIL_SMTP_APP_PASSWORD).
+        3) SMTP Relay (SMTP_RELAY_HOST...).
+        4) Direct provider SMTP.
         """
-        # Strategy 1: Gmail SMTP (most reliable for Render)
+        # Strategy 1: Gmail SMTP via OAuth (XOAUTH2)
+        use_gmail_oauth = bool(oauth_access_token and oauth_user_email)
+
+        # Strategy 2: Gmail SMTP via App Password
         gmail_smtp_email = os.getenv("GMAIL_SMTP_EMAIL")
         gmail_smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD")
-        
-        # Strategy 2: Generic SMTP relay (SMTP2GO, etc.)
+
+        # Strategy 3: Generic SMTP relay (SMTP2GO, etc.)
         relay_host = os.getenv("SMTP_RELAY_HOST")
         relay_port = int(os.getenv("SMTP_RELAY_PORT") or 2525) if relay_host else settings.smtp_port
         relay_security = os.getenv("SMTP_RELAY_SECURITY", settings.smtp_security).lower()
         relay_username = os.getenv("SMTP_RELAY_USERNAME", settings.username)
         relay_password = os.getenv("SMTP_RELAY_PASSWORD", settings.password)
-        
+
         # Determine which strategy to use
-        use_gmail_smtp = bool(gmail_smtp_email and gmail_smtp_password)
-        use_relay = bool(relay_host) and not use_gmail_smtp
-        
-        if use_gmail_smtp:
-            # Gmail SMTP settings
+        use_gmail_smtp = bool(gmail_smtp_email and gmail_smtp_password) and not use_gmail_oauth
+        use_relay = bool(relay_host) and not use_gmail_oauth and not use_gmail_smtp
+
+        if use_gmail_oauth:
+            smtp_host = "smtp.gmail.com"
+            smtp_port = 587
+            smtp_security = "starttls"
+            smtp_username = oauth_user_email
+            smtp_password = None  # XOAUTH2 uses token
+            logger.info(f"📤 Using Gmail SMTP (OAuth) for {oauth_user_email}")
+        elif use_gmail_smtp:
             smtp_host = "smtp.gmail.com"
             smtp_port = 587
             smtp_security = "starttls"
             smtp_username = gmail_smtp_email
             smtp_password = gmail_smtp_password
-            logger.info(f"📤 Using Gmail SMTP for sending (on behalf of {settings.email or settings.username})")
+            logger.info(f"📤 Using Gmail SMTP (App Password) for {gmail_smtp_email}")
         elif use_relay:
             smtp_host = relay_host
             smtp_port = relay_port
@@ -460,7 +470,9 @@ class MultiProviderEmailClient:
         # Get user's actual email address (the one they want replies to go to)
         sender_email = settings.email or settings.username
 
-        logger.info(f"📤 Sending to: {to_address} | On behalf of: {sender_email}")
+        logger.info(
+            f"📤 Sending to: {to_address} | On behalf of: {sender_email}"
+        )
         
         try:
             # Create message
@@ -472,13 +484,14 @@ class MultiProviderEmailClient:
                 msg = MIMEText(body_text, 'plain', 'utf-8')
             
             # Set From header based on sending strategy
-            if use_gmail_smtp:
-                # Gmail SMTP: Send "on behalf of" with Reply-To pointing to actual user
+            if use_gmail_oauth or use_gmail_smtp:
+                # Gmail SMTP: Send on behalf with Reply-To to actual user
                 gmail_from_name = os.getenv("GMAIL_SMTP_FROM_NAME", "QuMail Secure")
-                msg['From'] = f"{gmail_from_name} <{gmail_smtp_email}>"
-                msg['Reply-To'] = sender_email  # Replies go to actual user
+                from_email = oauth_user_email if use_gmail_oauth else gmail_smtp_email
+                msg['From'] = f"{gmail_from_name} <{from_email}>"
+                msg['Reply-To'] = sender_email
                 msg['X-Original-Sender'] = sender_email
-                logger.info(f"📧 Gmail SMTP: From={gmail_smtp_email}, Reply-To={sender_email}")
+                logger.info(f"📧 Gmail SMTP ({'OAuth' if use_gmail_oauth else 'AppPwd'}): From={from_email}, Reply-To={sender_email}")
             elif use_relay:
                 # SMTP Relay: May require verified sender
                 relay_from_email = os.getenv("SMTP_RELAY_FROM_EMAIL")
@@ -509,7 +522,6 @@ class MultiProviderEmailClient:
             
             # Connect and send
             if smtp_security == 'ssl':
-                # Port 465: Implicit TLS
                 smtp = aiosmtplib.SMTP(
                     hostname=smtp_host,
                     port=smtp_port,
@@ -518,19 +530,29 @@ class MultiProviderEmailClient:
                     validate_certs=False
                 )
             else:
-                # Port 587/2525: STARTTLS
                 smtp = aiosmtplib.SMTP(
                     hostname=smtp_host,
                     port=smtp_port,
                     start_tls=True if smtp_security == 'starttls' else False,
                     timeout=45
                 )
-            
+
             await smtp.connect()
-            await smtp.login(smtp_username, smtp_password)
+
+            if use_gmail_oauth:
+                # XOAUTH2 for Gmail
+                auth_string = f"user={smtp_username}\x01auth=Bearer {oauth_access_token}\x01\x01"
+                auth_b64 = base64.b64encode(auth_string.encode()).decode()
+                code, resp = await smtp.execute_command("AUTH", "XOAUTH2", auth_b64)
+                if code != 235:
+                    await smtp.quit()
+                    raise RuntimeError(f"Gmail XOAUTH2 failed: {code} {resp}")
+            else:
+                await smtp.login(smtp_username, smtp_password)
+
             await smtp.send_message(msg, recipients=recipients)
             await smtp.quit()
-            
+
             logger.info(f"✅ Email sent successfully to {to_address}")
             
             return {

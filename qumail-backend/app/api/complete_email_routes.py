@@ -108,6 +108,12 @@ class DirectDecryptRequest(BaseModel):
     kyber_ciphertext: Optional[str] = None
     kyber_private_key: Optional[str] = None
     dilithium_public_key: Optional[str] = None
+    # Level 4 RSA-specific fields
+    encrypted_session_key: Optional[str] = None
+    iv: Optional[str] = None
+    aad: Optional[str] = None
+    public_key: Optional[str] = None
+    private_key_ref: Optional[str] = None
 
 # NOTE: Use get_current_user from app.api.auth to ensure consistent auth across routes
 
@@ -151,6 +157,15 @@ async def decrypt_email_direct(
                 metadata['kyber_ciphertext'] = request.kem_ciphertext
             if request.kem_secret_key:
                 metadata['kyber_private_key'] = request.kem_secret_key
+        
+        # Add Level 4 RSA-specific fields if present
+        if request.security_level == 4:
+            metadata['encrypted_session_key'] = request.encrypted_session_key
+            metadata['iv'] = request.iv or request.nonce  # iv can come as nonce from frontend
+            metadata['aad'] = request.aad
+            metadata['public_key'] = request.public_key
+            metadata['private_key_ref'] = request.private_key_ref or request.flow_id
+            metadata['signature'] = request.signature
         
         # Decrypt based on security level
         encryption_service = complete_email_service.encryption_service

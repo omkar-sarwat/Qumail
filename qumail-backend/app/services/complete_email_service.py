@@ -309,6 +309,21 @@ class CompleteEmailService:
                             except (TypeError, ValueError):
                                 logger.warning("Failed to serialize quantum_enhancement for Gmail headers")
 
+                    # Add Level 4 RSA-specific headers
+                    if security_level == 4:
+                        if metadata.get('encrypted_session_key'):
+                            headers['X-QuMail-Encrypted-Session-Key'] = metadata['encrypted_session_key']
+                        if metadata.get('iv'):
+                            headers['X-QuMail-IV'] = metadata['iv']
+                        if metadata.get('aad'):
+                            headers['X-QuMail-AAD'] = metadata['aad']
+                        if metadata.get('public_key'):
+                            headers['X-QuMail-Public-Key'] = metadata['public_key']
+                        if metadata.get('private_key_ref'):
+                            headers['X-QuMail-Private-Key-Ref'] = metadata['private_key_ref']
+                        if metadata.get('signature'):
+                            headers['X-QuMail-Signature'] = metadata['signature']
+
                     message = {
                         'from': sender_email,
                         'to': recipient_email,
@@ -1181,6 +1196,18 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
                     metadata['quantum_enhancement'] = json.loads(custom_headers['x-qumail-quantum-enhancement'])
                 except (json.JSONDecodeError, TypeError):
                     metadata['quantum_enhancement'] = {'enabled': False}
+
+            # Extract Level 4 RSA-specific headers
+            if 'x-qumail-encrypted-session-key' in custom_headers:
+                metadata['encrypted_session_key'] = custom_headers['x-qumail-encrypted-session-key']
+            if 'x-qumail-iv' in custom_headers:
+                metadata['iv'] = custom_headers['x-qumail-iv']
+            if 'x-qumail-aad' in custom_headers:
+                metadata['aad'] = custom_headers['x-qumail-aad']
+            if 'x-qumail-public-key' in custom_headers:
+                metadata['public_key'] = custom_headers['x-qumail-public-key']
+            if 'x-qumail-private-key-ref' in custom_headers:
+                metadata['private_key_ref'] = custom_headers['x-qumail-private-key-ref']
 
             metadata['sync_type'] = 'qumail_encrypted' if is_qumail_encrypted else 'gmail_plain'
             if encryption_algorithm:
