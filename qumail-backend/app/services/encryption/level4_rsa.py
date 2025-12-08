@@ -13,10 +13,12 @@ try:
     # Try relative imports first (works at runtime)
     from ..km_client_init import get_optimized_km_clients
     from ..exceptions import Level4SecurityError, InsufficientKeysError
+    from ..local_private_key_store import local_private_key_store
 except ImportError:
     # Fall back to absolute imports (helps Pylance/IDE)
     from app.services.km_client_init import get_optimized_km_clients
     from app.services.exceptions import Level4SecurityError, InsufficientKeysError
+    from app.services.local_private_key_store import local_private_key_store
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +76,23 @@ async def encrypt_rsa(content: str, user_email: str) -> Dict[str, Any]:
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
         
-        # Store private key for decryption (in base64)
+        # Persist private key locally (only public key goes to Mongo)
         private_key_pem = rsa_private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption()
         )
+
+        private_key_ref = flow_id
+        try:
+            local_private_key_store.save_private_keys(
+                private_key_ref,
+                4,
+                {"rsa_private_key": base64.b64encode(private_key_pem).decode()},
+            )
+            logger.info(f"Stored Level 4 private key locally (ref: {private_key_ref})")
+        except Exception as e:
+            logger.warning(f"Failed to store Level 4 private key locally: {e}")
         
         return {
             "encrypted_content": base64.b64encode(ciphertext_bytes).decode(),
@@ -89,14 +102,14 @@ async def encrypt_rsa(content: str, user_email: str) -> Dict[str, Any]:
             "metadata": {
                 "flow_id": flow_id,
                 "public_key": base64.b64encode(public_key_pem).decode(),
-                "private_key": base64.b64encode(private_key_pem).decode(),  # Store for decryption
                 "encrypted_session_key": base64.b64encode(encrypted_session_key).decode(),
                 "iv": base64.b64encode(iv).decode(),
                 "auth_tag": base64.b64encode(auth_tag).decode(),
                 "signature": signature_b64,
                 "aad": base64.b64encode(aad).decode(),
                 "security_level": 4,
-                "quantum_enhanced": quantum_enhanced
+                "quantum_enhanced": quantum_enhanced,
+                "private_key_ref": private_key_ref,
             }
         }
         
@@ -114,14 +127,40 @@ async def decrypt_rsa(encrypted_content: str, user_email: str, metadata: Dict[st
         auth_tag = base64.b64decode(metadata.get("auth_tag"))
         aad = base64.b64decode(metadata.get("aad"))
         signature_b64 = metadata.get("signature")
-        
+
+        private_key_ref = metadata.get("private_key_ref") or flow_id
+
         # Load stored private key for decryption
-        private_key_pem = base64.b64decode(metadata.get("private_key"))
+        stored_private = None
+        try:
+            stored_private = local_private_key_store.get_private_keys(private_key_ref)
+        except Exception as e:
+            logger.warning(f"Failed to load Level 4 private key locally: {e}")
+
+        private_key_b64 = metadata.get("private_key")
+        if not private_key_b64 and stored_private:
+            private_key_b64 = stored_private.get("rsa_private_key")
+
+        if not private_key_b64:
+            raise Level4SecurityError("Private key not found locally for Level 4 decryption")
+
+        private_key_pem = base64.b64decode(private_key_b64)
         rsa_private_key = serialization.load_pem_private_key(
             private_key_pem,
             password=None,
             backend=default_backend()
         )
+
+        # Backfill local store for legacy metadata that carried the private key
+        if stored_private is None:
+            try:
+                local_private_key_store.save_private_keys(
+                    private_key_ref,
+                    4,
+                    {"rsa_private_key": private_key_b64},
+                )
+            except Exception as e:
+                logger.warning(f"Failed to backfill Level 4 private key locally: {e}")
         
         # Verify RSA Signature if present
         if signature_b64:

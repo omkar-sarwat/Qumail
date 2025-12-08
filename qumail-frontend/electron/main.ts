@@ -237,9 +237,9 @@ app.whenReady().then(async () => {
     console.log('[App] Is Dev Mode:', isDev)
     console.log('[App] =================================================')
     
-    // Initialize local SQLite database
+    // Initialize local SQLite database (sql.js is async)
     console.log('[App] Initializing local database...')
-    database.initDatabase()
+    await database.initDatabaseAsync()
     console.log('[App] Local database initialized!')
     
     // Ensure we're the only instance

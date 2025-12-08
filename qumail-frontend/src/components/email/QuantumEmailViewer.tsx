@@ -205,39 +205,24 @@ const getInitialState = (email: QuantumEmailViewerProps['email']): {
     return { stage: 'decrypted', content: { body: email.decrypted_body }, info: null };
   }
   
-  // If already decrypted in this session, check cache
-  if (sessionDecryptedEmails.has(email.email_id)) {
-    const cacheKey = `qumail_decrypted_${email.email_id}`;
-    try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const cachedData = JSON.parse(cached);
-        
-        // Check TOTP session SYNCHRONOUSLY
-        // If valid TOTP session exists, go straight to decrypted
-        const hasValidSession = decryptAuthService.hasValidTOTPSession(email.email_id);
-        
-        if (hasValidSession) {
-          // Valid TOTP session - show decrypted content immediately
-          return { 
-            stage: 'decrypted', 
-            content: cachedData.content, 
-            info: cachedData.security_info || null 
-          };
-        }
-        
-        // No valid session - will need to check if TOTP is required async
-        // Default to 'totp_required' to prevent flash of decrypt button
-        // The useEffect will correct this to 'decrypted' if TOTP not enabled
-        return { 
-          stage: 'totp_required', 
-          content: cachedData.content, 
-          info: cachedData.security_info || null 
-        };
-      }
-    } catch (e) {
-      console.warn('Failed to load cached content in initial state:', e);
+  // If decrypted previously, check cache even across reloads to avoid re-showing the decrypt button
+  const cacheKey = `qumail_decrypted_${email.email_id}`;
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const cachedData = JSON.parse(cached);
+      // Remember decrypted state for this session too
+      sessionDecryptedEmails.add(email.email_id);
+
+      // If we have cached decrypted content, honor it immediately so reopened app shows plaintext without re-decrypting
+      return { 
+        stage: 'decrypted', 
+        content: cachedData.content, 
+        info: cachedData.security_info || null 
+      };
     }
+  } catch (e) {
+    console.warn('Failed to load cached content in initial state:', e);
   }
   
   // Not decrypted - show locked
@@ -320,6 +305,22 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
     }
     
     const initialize = async () => {
+      // Highest priority: persistent cache (Electron SQLite or local fallback)
+      try {
+        const cached = await emailService.getCachedEmailAsync(email.email_id);
+        if (cached) {
+          console.log('💾 Loaded decrypted email from persistent cache:', email.email_id);
+          sessionDecryptedEmails.add(email.email_id);
+          setDecryptedContent(cached);
+          setDecryptionInfo((cached as any).security_info ?? null);
+          setError(null);
+          setStage('decrypted');
+          return;
+        }
+      } catch (cacheErr) {
+        console.warn('Failed to load persistent cached decrypt:', cacheErr);
+      }
+
       // CASE 1: Parent provided already decrypted content
       if (email.decrypted_body && !email.requires_decryption) {
         console.log('✅ Using decrypted_body from parent for email:', email.email_id);
@@ -330,40 +331,12 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
         return;
       }
       
-      // CASE 2: Check if decrypted in THIS SESSION (module-level Set)
+      // CASE 2: Cached or previously decrypted - show decrypted immediately without prompting
       const wasDecryptedThisSession = sessionDecryptedEmails.has(email.email_id);
       console.log('📧 Email session check:', email.email_id, 'decrypted:', wasDecryptedThisSession);
-      
       if (wasDecryptedThisSession) {
-        // User already decrypted this email in current session
-        // Content already loaded synchronously in getInitialState
-        // Just need to check TOTP status
-        
-        // Check TOTP requirement
-        try {
-          const status = await decryptAuthService.getStatus();
-          if (cancelled) return;
-          
-          setTotpSetup(status.totp_verified);
-          
-          if (status.totp_verified && !decryptAuthService.hasValidTOTPSession(email.email_id)) {
-            // TOTP enabled but session expired (>5 min) - require verification
-            // Stage is already 'totp_required' from getInitialState
-            console.log('🔐 TOTP session expired, requiring verification');
-            setStage('totp_required');
-          } else {
-            // No TOTP or valid session - show content directly
-            console.log('✅ Valid TOTP session or no TOTP, showing content');
-            setError(null);
-            setStage('decrypted');
-          }
-        } catch (e) {
-          console.warn('Failed to check TOTP status:', e);
-          if (!cancelled) {
-            // Default to showing decrypted content if TOTP check fails
-            setStage('decrypted');
-          }
-        }
+        setError(null);
+        setStage('decrypted');
         return;
       }
       
@@ -456,6 +429,9 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
       // Already decrypted, just toggle view
       return;
     }
+
+    // Determine if this is the user's first decrypt for this email to avoid prompting TOTP immediately
+    const isFirstDecrypt = decryptAuthService.isFirstDecrypt(email.email_id);
 
     setStage('decrypting');
     setError(null);
@@ -557,18 +533,21 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
         // Mark as decrypted in this session (module-level Set persists across re-renders)
         sessionDecryptedEmails.add(email.email_id);
         
-        // Cache decrypted content in localStorage
+        // Cache decrypted content in persistent offline store (Electron DB + localStorage fallback)
         try {
-          const cacheKey = getCacheKey(email.email_id);
-          localStorage.setItem(cacheKey, JSON.stringify({
-            content: enrichedData,
-            security_info: response.security_info,
-            cached_at: new Date().toISOString()
-          }));
+          await emailService.cacheEmailAsync(
+            email.email_id,
+            enrichedData.flow_id,
+            enrichedData,
+            response.security_info ?? null
+          );
           console.log('💾 Cached decrypted content for email:', email.email_id);
         } catch (cacheError) {
           console.warn('Failed to cache decrypted content:', cacheError);
         }
+
+        // Mark the first decrypt so subsequent views can require authenticator instead of showing the decrypt button again
+        decryptAuthService.markFirstDecryptComplete(email.email_id);
         
         setProgress(100);
         
@@ -577,9 +556,15 @@ export const QuantumEmailViewer: React.FC<QuantumEmailViewerProps> = ({
         try {
           const status = await decryptAuthService.getStatus();
           if (status.totp_verified) {
-            // TOTP is enabled - require verification before showing content
-            console.log('🔐 TOTP enabled, requiring verification after decrypt');
-            setStage('totp_required');
+            // If this was the first decrypt, allow viewing once before requiring TOTP on subsequent opens
+            if (isFirstDecrypt) {
+              console.log('🔐 TOTP enabled but first decrypt – showing content, will require code next time');
+              onDecrypted?.({ ...response, email_data: enrichedData });
+              setStage('decrypted');
+            } else {
+              console.log('🔐 TOTP enabled, requiring verification after decrypt');
+              setStage('totp_required');
+            }
           } else {
             // No TOTP - show content directly
             onDecrypted?.({ ...response, email_data: enrichedData });

@@ -22,11 +22,13 @@ try:
     from ..km_client_init import get_optimized_km_clients
     from ..exceptions import Level3SecurityError, InsufficientKeysError
     from ..optimized_km_client import AuthenticationError, KMConnectionError
+    from ..local_private_key_store import local_private_key_store
 except ImportError:
     # Fall back to absolute imports (helps Pylance/IDE)
     from app.services.km_client_init import get_optimized_km_clients
     from app.services.exceptions import Level3SecurityError, InsufficientKeysError
     from app.services.optimized_km_client import AuthenticationError, KMConnectionError
+    from app.services.local_private_key_store import local_private_key_store
 
 logger = logging.getLogger(__name__)
 
@@ -322,8 +324,23 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
         # Step 7: Sign ciphertext with ML-DSA-87
         signature = MLDSA.sign(dsa_secret_key, ciphertext)
         logger.info(f"   ✓ ML-DSA-87 signature generated")
+
+        # Step 8: Persist private keys locally (no private keys in Mongo)
+        private_key_ref = flow_id
+        try:
+            local_private_key_store.save_private_keys(
+                private_key_ref,
+                3,
+                {
+                    "kem_secret_key": base64.b64encode(kem_secret_key).decode(),
+                    "dsa_secret_key": base64.b64encode(dsa_secret_key).decode(),
+                },
+            )
+            logger.info(f"   ✓ Stored Level 3 private keys locally (ref: {private_key_ref})")
+        except Exception as e:
+            logger.warning(f"   ⚠️ Failed to store Level 3 private keys locally: {e}")
         
-        # Step 8: Securely clear sensitive key material
+        # Step 9: Securely clear sensitive key material
         ikm = b'\x00' * len(ikm)
         aes_key = b'\x00' * len(aes_key)
         kem_shared_secret = b'\x00' * len(kem_shared_secret)
@@ -344,12 +361,11 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
                 "auth_tag": base64.b64encode(auth_tag).decode(),
                 "signature": base64.b64encode(signature).decode(),
                 "kem_ciphertext": base64.b64encode(kem_ciphertext).decode(),
-                "kem_secret_key": base64.b64encode(kem_secret_key).decode(),
                 "kem_public_key": base64.b64encode(kem_public_key).decode(),
                 "dsa_public_key": base64.b64encode(dsa_public_key).decode(),
+                "private_key_ref": private_key_ref,
                 # Legacy compatibility aliases
                 "kyber_ciphertext": base64.b64encode(kem_ciphertext).decode(),
-                "kyber_private_key": base64.b64encode(kem_secret_key).decode(),
                 "kyber_public_key": base64.b64encode(kem_public_key).decode(),
                 "dilithium_public_key": base64.b64encode(dsa_public_key).decode(),
                 "quantum_enhancement": {
@@ -395,13 +411,38 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
         nonce = base64.b64decode(metadata["nonce"])
         auth_tag = base64.b64decode(metadata["auth_tag"])
         
+        private_key_ref = metadata.get("private_key_ref") or flow_id
+
         # Support both new (kem_*) and legacy (kyber_*) key names
         kem_ciphertext = base64.b64decode(
             metadata.get("kem_ciphertext") or metadata.get("kyber_ciphertext")
         )
-        kem_secret_key = base64.b64decode(
-            metadata.get("kem_secret_key") or metadata.get("kyber_private_key")
-        )
+
+        stored_private = None
+        try:
+            stored_private = local_private_key_store.get_private_keys(private_key_ref)
+        except Exception as e:
+            logger.warning(f"   ⚠️ Failed to load Level 3 private keys from local store: {e}")
+
+        kem_secret_key_b64 = metadata.get("kem_secret_key") or metadata.get("kyber_private_key")
+        if not kem_secret_key_b64 and stored_private:
+            kem_secret_key_b64 = stored_private.get("kem_secret_key")
+
+        if not kem_secret_key_b64:
+            raise Level3SecurityError("Private key not found locally for Level 3 decryption")
+
+        kem_secret_key = base64.b64decode(kem_secret_key_b64)
+
+        # Backfill local store for legacy payloads that carried private keys in metadata
+        if stored_private is None:
+            try:
+                local_private_key_store.save_private_keys(
+                    private_key_ref,
+                    3,
+                    {"kem_secret_key": kem_secret_key_b64},
+                )
+            except Exception as e:
+                logger.warning(f"   ⚠️ Failed to backfill Level 3 private key locally: {e}")
         dsa_public_key_b64 = metadata.get("dsa_public_key") or metadata.get("dilithium_public_key", "")
         dsa_public_key = base64.b64decode(dsa_public_key_b64) if dsa_public_key_b64 else None
         
