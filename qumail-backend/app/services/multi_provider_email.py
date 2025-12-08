@@ -12,6 +12,7 @@ from email import encoders
 from email.header import decode_header
 from email.utils import parseaddr
 from typing import List, Dict, Any, Optional, Tuple
+import os
 import logging
 import ssl
 import poplib
@@ -403,7 +404,22 @@ class MultiProviderEmailClient:
         attachments: Optional[List[Dict]] = None
     ) -> Dict[str, Any]:
         """Send email via SMTP"""
-        logger.info(f"📤 Sending email via SMTP: {settings.smtp_host}:{settings.smtp_port}")
+        # Apply relay override if configured to bypass blocked ports (Render etc.)
+        relay_host = os.getenv("SMTP_RELAY_HOST")
+        relay_port = int(os.getenv("SMTP_RELAY_PORT") or 2525) if relay_host else settings.smtp_port
+        relay_security = os.getenv("SMTP_RELAY_SECURITY", settings.smtp_security).lower()
+        relay_username = os.getenv("SMTP_RELAY_USERNAME", settings.username)
+        relay_password = os.getenv("SMTP_RELAY_PASSWORD", settings.password)
+
+        use_relay = bool(relay_host)
+        smtp_host = relay_host if use_relay else settings.smtp_host
+        smtp_port = relay_port if use_relay else settings.smtp_port
+        smtp_security = relay_security if use_relay else settings.smtp_security
+
+        logger.info(
+            f"📤 Sending email via SMTP: {smtp_host}:{smtp_port}"
+            + (" (relay)" if use_relay else "")
+        )
         
         try:
             # Create message
@@ -429,26 +445,27 @@ class MultiProviderEmailClient:
                 recipients.extend([addr.strip() for addr in bcc_address.split(',')])
             
             # Connect and send
-            if settings.smtp_security == 'ssl':
+            if smtp_security == 'ssl':
                 # Port 465: Implicit TLS
                 smtp = aiosmtplib.SMTP(
-                    hostname=settings.smtp_host,
-                    port=settings.smtp_port,
+                    hostname=smtp_host,
+                    port=smtp_port,
                     use_tls=True,
-                    timeout=30,
+                    timeout=45,
                     validate_certs=False  # Handle servers with cert issues
                 )
             else:
-                # Port 587: STARTTLS
+                # Port 587/2525: STARTTLS
                 smtp = aiosmtplib.SMTP(
-                    hostname=settings.smtp_host,
-                    port=settings.smtp_port,
-                    start_tls=True if settings.smtp_security == 'starttls' else False,
-                    timeout=30
+                    hostname=smtp_host,
+                    port=smtp_port,
+                    start_tls=True if smtp_security == 'starttls' else False,
+                    timeout=45
                 )
             
             await smtp.connect()
-            await smtp.login(settings.username, settings.password)
+            await smtp.login(relay_username if use_relay else settings.username,
+                            relay_password if use_relay else settings.password)
             await smtp.send_message(msg, recipients=recipients)
             await smtp.quit()
             
@@ -458,7 +475,8 @@ class MultiProviderEmailClient:
                 "success": True,
                 "message_id": msg.get('Message-ID'),
                 "to": to_address,
-                "subject": subject
+                "subject": subject,
+                "relay": use_relay
             }
             
         except Exception as e:
@@ -469,7 +487,7 @@ class MultiProviderEmailClient:
         """List available folders via IMAP"""
         client = await self.connect_imap(settings)
         
-        _, data = await client.list()
+        _, data = await client.list(reference_name="", mailbox_pattern="*")
         
         folders = []
         for folder_data in data:

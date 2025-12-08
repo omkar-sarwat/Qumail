@@ -4,6 +4,7 @@ import asyncio
 import poplib
 import ssl
 from typing import Dict, List, Optional
+import os
 import aiosmtplib
 import aioimaplib
 
@@ -20,13 +21,37 @@ def _validate_connection_params(host: str, port: int, username: str, password: s
         raise ValueError("Password cannot be empty")
 
 
-async def test_smtp_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 30.0) -> Dict[str, str]:
+def _apply_smtp_relay_override(host: str, port: int, security: str, username: str, password: str):
+    """If SMTP_RELAY_HOST is set, override target SMTP to relay-friendly host/port.
+
+    Env vars:
+    - SMTP_RELAY_HOST (required to activate override)
+    - SMTP_RELAY_PORT (optional, default 2525 if host set)
+    - SMTP_RELAY_SECURITY (optional, default starttls)
+    - SMTP_RELAY_USERNAME (optional, defaults to provided username)
+    - SMTP_RELAY_PASSWORD (optional, defaults to provided password)
+    """
+    relay_host = os.getenv("SMTP_RELAY_HOST")
+    if not relay_host:
+        return host, port, security, username, password, False
+
+    relay_port = int(os.getenv("SMTP_RELAY_PORT") or 2525)
+    relay_security = os.getenv("SMTP_RELAY_SECURITY", "starttls").lower()
+    relay_username = os.getenv("SMTP_RELAY_USERNAME", username)
+    relay_password = os.getenv("SMTP_RELAY_PASSWORD", password)
+    return relay_host.strip(), relay_port, relay_security, relay_username, relay_password, True
+
+
+async def test_smtp_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 45.0) -> Dict[str, str]:
     # Validate inputs first
     _validate_connection_params(host, port, username, password)
     host = host.strip()
-    
     security = security.lower()
-    
+
+    # Relay override (to bypass provider-blocked ports)
+    host, port, security, username, password, relay_used = _apply_smtp_relay_override(host, port, security, username, password)
+
+    smtp = None
     try:
         if security == "ssl":
             # Port 465: Implicit TLS - connection starts with SSL
@@ -35,7 +60,7 @@ async def test_smtp_connection(host: str, port: int, security: str, username: st
                 port=port,
                 use_tls=True,
                 timeout=timeout,
-                validate_certs=False  # Some servers have cert issues
+                validate_certs=False,  # Some servers have cert issues
             )
         else:
             # Port 587: STARTTLS - starts plain, upgrades to TLS
@@ -43,23 +68,24 @@ async def test_smtp_connection(host: str, port: int, security: str, username: st
                 hostname=host,
                 port=port,
                 start_tls=True if security == "starttls" else False,
-                timeout=timeout
+                timeout=timeout,
             )
-        
+
         await smtp.connect()
         await smtp.ehlo()
         await smtp.login(username, password)
-        return {"status": "ok", "message": "SMTP login succeeded"}
+        return {"status": "ok", "message": "SMTP login succeeded", "relay": relay_used}
     except Exception as e:
-        raise Exception(f"SMTP connection failed: {str(e)}")
+        raise Exception(f"SMTP connection failed: {type(e).__name__}: {str(e)}")
     finally:
-        try:
-            await smtp.quit()
-        except Exception:
-            pass
+        if smtp:
+            try:
+                await smtp.quit()
+            except Exception:
+                pass
 
 
-async def test_imap_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 15.0) -> Dict[str, str]:
+async def test_imap_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 20.0) -> Dict[str, str]:
     # Validate inputs first
     _validate_connection_params(host, port, username, password)
     host = host.strip()
@@ -85,7 +111,7 @@ async def test_imap_connection(host: str, port: int, security: str, username: st
     return {"status": "ok", "message": "IMAP login succeeded", "capabilities": capabilities}
 
 
-async def list_imap_folders(host: str, port: int, security: str, username: str, password: str, timeout: float = 20.0) -> List[str]:
+async def list_imap_folders(host: str, port: int, security: str, username: str, password: str, timeout: float = 25.0) -> List[str]:
     # Validate inputs first
     _validate_connection_params(host, port, username, password)
     host = host.strip()
@@ -102,7 +128,7 @@ async def list_imap_folders(host: str, port: int, security: str, username: str, 
         ssl_context = ssl.create_default_context()
         await imap.starttls(ssl_context=ssl_context)
     await imap.login(username, password)
-    typ, mailboxes = await imap.list()
+    typ, mailboxes = await imap.list(reference_name="", mailbox_pattern="*")
     folders: List[str] = []
     if mailboxes:
         for raw in mailboxes:
@@ -117,7 +143,7 @@ async def list_imap_folders(host: str, port: int, security: str, username: str, 
     return folders
 
 
-async def test_pop3_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 15.0) -> Dict[str, str]:
+async def test_pop3_connection(host: str, port: int, security: str, username: str, password: str, timeout: float = 20.0) -> Dict[str, str]:
     """Test POP3 connection (sync, run in executor for async compat)."""
     # Validate inputs first
     _validate_connection_params(host, port, username, password)

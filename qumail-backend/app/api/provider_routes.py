@@ -26,6 +26,7 @@ class ConnectionConfig(BaseModel):
     security: str = Field(..., description="ssl or starttls")
     username: str = Field(..., min_length=1, description="Login username/email")
     password: str = Field(..., min_length=1, description="Login password")
+    timeout: int = Field(30, gt=0, le=90, description="Connection timeout seconds")
 
     def normalized_security(self) -> str:
         sec = self.security.lower()
@@ -60,7 +61,14 @@ async def get_provider_list():
 async def imap_test(config: ConnectionConfig):
     try:
         security = config.normalized_security()
-        result = await test_imap_connection(config.host, config.port, security, config.username, config.password)
+        result = await test_imap_connection(
+            config.host,
+            config.port,
+            security,
+            config.username,
+            config.password,
+            timeout=float(config.timeout),
+        )
         return result
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
@@ -73,7 +81,14 @@ async def imap_test(config: ConnectionConfig):
 async def smtp_test(config: ConnectionConfig):
     try:
         security = config.normalized_security()
-        result = await test_smtp_connection(config.host, config.port, security, config.username, config.password)
+        result = await test_smtp_connection(
+            config.host,
+            config.port,
+            security,
+            config.username,
+            config.password,
+            timeout=float(config.timeout),
+        )
         return result
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
@@ -87,7 +102,14 @@ async def pop3_test(config: ConnectionConfig):
     """Test POP3 connection (for providers like Rediffmail that don't support IMAP)"""
     try:
         security = config.normalized_security()
-        result = await test_pop3_connection(config.host, config.port, security, config.username, config.password)
+        result = await test_pop3_connection(
+            config.host,
+            config.port,
+            security,
+            config.username,
+            config.password,
+            timeout=float(config.timeout),
+        )
         return result
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
@@ -100,7 +122,14 @@ async def pop3_test(config: ConnectionConfig):
 async def list_folders(config: ConnectionConfig):
     try:
         security = config.normalized_security()
-        folders = await list_imap_folders(config.host, config.port, security, config.username, config.password)
+        folders = await list_imap_folders(
+            config.host,
+            config.port,
+            security,
+            config.username,
+            config.password,
+            timeout=float(config.timeout),
+        )
         return {"status": "ok", "folders": folders}
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
