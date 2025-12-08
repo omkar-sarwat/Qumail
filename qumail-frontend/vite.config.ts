@@ -4,7 +4,7 @@ import { resolve } from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: '/',
+  base: './',  // Use relative path for Electron file:// protocol
   plugins: [
     react({
       // Use automatic JSX runtime for better performance
@@ -49,7 +49,7 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true, // Remove console.log in production
+        drop_console: false, // Keep console.log for debugging
         drop_debugger: true,
       },
     },

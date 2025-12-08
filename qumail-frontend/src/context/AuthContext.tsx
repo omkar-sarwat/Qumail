@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { authService, User } from '../services/authService';
+import { useAuthStore } from '../stores/authStore';
 
 // Helper to get auth from Zustand's localStorage if authService doesn't have it
 const getZustandAuth = (): { user: User | null; token: string | null } => {
@@ -149,7 +150,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       await authService.logout();
+      // Ensure Zustand auth store is also cleared
+      useAuthStore.getState().logout();
       setUser(null);
+      // With HashRouter, ensure we land on the login route
+      if (window.location.hash !== '#/' && window.location.hash !== '#') {
+        window.location.hash = '#/';
+      }
     } catch (error) {
       console.error('Logout failed:', error);
     } finally {

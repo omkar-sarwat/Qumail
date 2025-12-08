@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '../ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card'
 import { GoogleAuthSetup } from '../settings/GoogleAuthSetup'
+import { useAuth } from '../../context/AuthContext'
 
 interface User {
   id: string
@@ -22,6 +23,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onClose,
   user
 }) => {
+  const { logout } = useAuth()
   const [activeTab, setActiveTab] = useState('account')
   const [keyManagerSettings, setKeyManagerSettings] = useState({
     autoRefresh: true,
@@ -59,10 +61,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
   ]
 
-  const handleLogout = () => {
-    localStorage.removeItem('authToken')
-    localStorage.removeItem('user')
-    window.location.reload()
+  const handleLogout = async () => {
+    await logout()
+    // Ensure hash-based router lands on login
+    if (window.location.hash !== '#/' && window.location.hash !== '#') {
+      window.location.hash = '#/'
+    }
   }
 
   const renderAccountTab = () => (

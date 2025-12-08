@@ -115,13 +115,13 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Logo container with fixed dimensions to prevent layout shift */}
             <div className="flex items-center h-10 overflow-hidden flex-shrink-0">
               <img 
-                src="/qumail-logo.svg" 
+                src="./qumail-logo.svg" 
                 alt="QuMail" 
                 className={`h-10 w-auto transition-all duration-300 ease-in-out transform-gpu ${isSidebarCollapsed ? 'scale-90 opacity-0 -translate-x-4' : 'scale-100 opacity-100 translate-x-0'}`}
                 style={{ minWidth: isSidebarCollapsed ? '0' : '120px' }}
               />
               <img 
-                src="/qumail-icon.svg" 
+                src="./qumail-icon.svg" 
                 alt="QuMail" 
                 className={`h-9 w-9 absolute transition-all duration-300 ease-in-out transform-gpu ${isSidebarCollapsed ? 'scale-100 opacity-100 translate-x-0' : 'scale-90 opacity-0 translate-x-4'}`}
                 style={{ left: isSidebarCollapsed ? '56px' : '56px' }}

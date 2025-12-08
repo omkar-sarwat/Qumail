@@ -63,7 +63,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
 
         <div className="text-center overflow-hidden">
           <div className="flex items-center justify-center mb-2 animate-in slide-in-from-bottom-4 fade-in duration-700 delay-300 fill-mode-backwards">
-            <img src="/qumail-logo.svg" alt="QuMail" className="h-12 w-auto" />
+            <img src="./qumail-logo.svg" alt="QuMail" className="h-12 w-auto" />
           </div>
           <div className="flex items-center gap-2 justify-center animate-in slide-in-from-bottom-2 fade-in duration-700 delay-500 fill-mode-backwards">
             <div className="h-px w-4 bg-indigo-200"></div>

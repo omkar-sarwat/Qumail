@@ -205,7 +205,7 @@ export const LoginScreen: React.FC = () => {
                 animate="animate"
                 className="mb-6 mx-auto"
               >
-                <img src="/qumail-logo.svg" alt="QuMail" className="h-35 w-auto mx-auto brightness-0 invert" />
+                <img src="./qumail-logo.svg" alt="QuMail" className="h-35 w-auto mx-auto brightness-0 invert" />
               </motion.div>
               
             

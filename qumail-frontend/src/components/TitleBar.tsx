@@ -32,7 +32,7 @@ export const TitleBar: React.FC = () => {
   return (
     <div className="titlebar bg-slate-900 h-8 flex items-center justify-between select-none border-b border-slate-800" style={{ WebkitAppRegion: 'drag' } as any}>
       <div className="flex items-center gap-3 pl-3">
-        <img src="/qumail-icon.svg" alt="QuMail" className="qumail-logo-mark" />
+        <img src="./qumail-icon.svg" alt="QuMail" className="qumail-logo-mark" />
         <span className="text-xs font-semibold text-slate-200 tracking-wide">QuMail Secure</span>
       </div>
       

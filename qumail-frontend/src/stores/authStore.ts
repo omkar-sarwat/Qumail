@@ -124,6 +124,9 @@ export const useAuthStore = create<AuthState>()(
         // Clear token from API service
         apiService.clearAuthToken()
         
+        // Clear Zustand persisted state (IMPORTANT: this key is used by persist middleware)
+        localStorage.removeItem('qumail-auth')
+        
         // Clear legacy localStorage keys
         localStorage.removeItem('authToken')
         localStorage.removeItem('refreshToken')
