@@ -3,8 +3,6 @@ import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { LoginScreen } from './components/auth/LoginScreen'
 import { OAuthCallback } from './components/auth/OAuthCallback'
-import { MicrosoftOAuthCallback } from './components/auth/MicrosoftOAuthCallback'
-import { YahooOAuthCallback } from './components/auth/YahooOAuthCallback'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { EmailSyncProvider } from './services/EmailSyncProvider'
 import { TitleBar } from './components/TitleBar'
@@ -61,14 +59,6 @@ const AppContent: React.FC = () => {
                   // OAuthCallback component will use the auth context directly
                   // No need to handle it here
                 }} />}
-              />
-              <Route
-                path="/auth/microsoft/callback"
-                element={<MicrosoftOAuthCallback />}
-              />
-              <Route
-                path="/auth/yahoo/callback"
-                element={<YahooOAuthCallback />}
               />
               <Route
                 path="/dashboard"

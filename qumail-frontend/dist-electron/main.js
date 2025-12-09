@@ -112,8 +112,8 @@ if (isDev) {
     electron_1.app.commandLine.appendSwitch('ignore-certificate-errors', 'true');
     electron_1.app.commandLine.appendSwitch('allow-insecure-localhost', 'true');
 }
-// Backend URL - use localhost for dev, Render for production
-var BACKEND_URL = isDev ? 'http://localhost:8000' : 'https://qumail-backend-gwec.onrender.com';
+// Backend URL - always use Render backend (no local backend needed)
+var BACKEND_URL = 'https://qumail-backend-gwec.onrender.com';
 // KME servers are on Render (cloud) - not local
 var KME1_URL = 'https://qumail-kme1-brzq.onrender.com';
 var KME2_URL = 'https://qumail-kme2-brzq.onrender.com';
