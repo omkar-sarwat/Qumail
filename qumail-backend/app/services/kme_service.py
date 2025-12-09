@@ -37,22 +37,22 @@ class KmeService:
             {
                 "id": 1,
                 "name": "KME 1 (Sender)",
-                "base_url": os.getenv("KM1_BASE_URL", "https://qumail-kme1-pmsy.onrender.com"),
+                "base_url": os.getenv("KM1_BASE_URL", "http://localhost:8010"),
                 "slave_sae_id": "c565d5aa-8670-4446-8471-b0e53e315d2a",  # KME2's SAE ID (the target)
                 "cert_path": os.path.join(PROJECT_ROOT, "certs/kme-1-local-zone/client_1.pfx"), 
                 "cert_password": "password",
                 "ca_cert_path": os.path.join(PROJECT_ROOT, "certs/kme-1-local-zone/ca.crt"),
-                "verify_ssl": False  # Disable SSL verification for Render cloud
+                "verify_ssl": True  # Enable SSL verification for local servers
             },
             {
                 "id": 2,
                 "name": "KME 2 (Receiver)",
-                "base_url": os.getenv("KM2_BASE_URL", "https://qumail-kme2-pmsy.onrender.com"),
+                "base_url": os.getenv("KM2_BASE_URL", "http://localhost:8020"),
                 "slave_sae_id": "25840139-0dd4-49ae-ba1e-b86731601803",  # KME1's SAE ID (the target)
                 "cert_path": os.path.join(PROJECT_ROOT, "certs/kme-2-local-zone/client_3.pfx"),
                 "cert_password": "password",
                 "ca_cert_path": os.path.join(PROJECT_ROOT, "certs/kme-2-local-zone/ca.crt"),
-                "verify_ssl": False  # Disable SSL verification for Render cloud
+                "verify_ssl": True  # Enable SSL verification for local servers
             }
         ]
         
