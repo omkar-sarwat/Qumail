@@ -56,6 +56,7 @@ from .routes.emails import router as emails_router
 from .routes.quantum import router as quantum_router
 from .routes.km_status import router as km_status_router
 from .routes.test_quantum import router as test_quantum_router
+from .routes.qkd import router as qkd_router  # QKD MongoDB routes
 from .middleware.error_handling import (
     SecurityMiddleware,
     RateLimitMiddleware,
@@ -75,6 +76,7 @@ from .services.quantum_key_manager import OneTimeQuantumKeyManager, SecurityLeve
 from .services.qumail_encryption import QuMailQuantumEncryption, QuMailSecurityLevelManager
 from .response_schemas import SystemStatusResponse, HealthCheckResponse, MetricsResponse
 from .mongo_models import UserDocument
+from .mongo_repositories import UserRepository
 from .api.auth import get_current_user
 from pydantic import ValidationError
 
@@ -401,6 +403,7 @@ app.include_router(quantum_router)
 app.include_router(km_status_router)
 app.include_router(test_quantum_router)  # Test endpoints for quantum system
 app.include_router(local_km_router)  # Local Key Manager API
+app.include_router(qkd_router)  # QKD MongoDB API (keys, sessions, audit logs)
 
 @app.get("/")
 async def root():
@@ -507,6 +510,67 @@ async def health_check():
 async def health():
     """Legacy health endpoint"""
     return {"status": "ok", "service": "QuMail Backend", "version": settings.app_version}
+
+@app.post("/api/v1/users/check")
+async def check_qumail_user(
+    request: Request,
+    current_user: UserDocument = Depends(get_current_user),
+    db = Depends(get_database)
+):
+    """
+    Check if email address(es) are registered QuMail users.
+    This is used to validate recipients before sending encrypted emails.
+    
+    Request body:
+    {
+        "emails": ["user1@example.com", "user2@example.com"]
+    }
+    
+    Response:
+    {
+        "results": {
+            "user1@example.com": {"is_qumail_user": true, "display_name": "User One"},
+            "user2@example.com": {"is_qumail_user": false}
+        }
+    }
+    """
+    try:
+        data = await request.json()
+        emails = data.get("emails", [])
+        
+        if not emails:
+            raise HTTPException(status_code=400, detail="No email addresses provided")
+        
+        if isinstance(emails, str):
+            emails = [emails]
+        
+        user_repo = UserRepository(db)
+        results = {}
+        
+        for email in emails:
+            email = email.strip().lower()
+            if not email or "@" not in email:
+                results[email] = {"is_qumail_user": False, "error": "Invalid email format"}
+                continue
+            
+            user = await user_repo.find_by_email(email)
+            if user:
+                results[email] = {
+                    "is_qumail_user": True,
+                    "display_name": user.display_name or email.split("@")[0]
+                }
+            else:
+                results[email] = {"is_qumail_user": False}
+        
+        logger.info(f"QuMail user check for {len(emails)} emails by {current_user.email}")
+        
+        return {"results": results}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking QuMail users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to check users: {str(e)}")
 
 @app.get("/emails")
 async def get_emails(
@@ -898,6 +962,21 @@ async def send_quantum_email_compat(
 
     except HTTPException:
         raise
+    except ValueError as e:
+        error_message = str(e)
+        # Check if this is a "not a QuMail user" error
+        if "not a registered QuMail user" in error_message:
+            logger.warning(f"⛔ Recipient not QuMail user: {error_message}")
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "recipient_not_qumail_user",
+                    "message": error_message,
+                    "recipient_email": recipient
+                }
+            )
+        logger.error(f"Validation error sending quantum email: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error sending quantum email: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to send quantum email: {str(e)}")

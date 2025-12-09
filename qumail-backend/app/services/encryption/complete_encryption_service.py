@@ -16,11 +16,12 @@ logger = logging.getLogger(__name__)
 class QuantumEncryptionService:
     """Complete encryption service using TESTED quantum encryption functions"""
     
-    async def encrypt_level_1_otp(self, message: str, user_email: str = "sender@qumail.com") -> Dict[str, Any]:
+    async def encrypt_level_1_otp(self, message: str, sender_email: str = "sender@qumail.com",
+                                   receiver_email: str = "") -> Dict[str, Any]:
         """Level 1: Quantum One-Time Pad - Uses tested encrypt_otp"""
         try:
-            logger.info(f"📧 EMAIL: Level 1 OTP encryption starting (message size: {len(message)} bytes, user: {user_email})")
-            result = await encrypt_otp(message, user_email)
+            logger.info(f"📧 EMAIL: Level 1 OTP encryption starting (message size: {len(message)} bytes, sender: {sender_email}, receiver: {receiver_email})")
+            result = await encrypt_otp(message, sender_email, receiver_email=receiver_email)
             logger.info(f"📧 EMAIL: Level 1 OTP encryption completed with flow_id {result['metadata']['flow_id']}")
             return result
         except Exception as e:
@@ -39,11 +40,12 @@ class QuantumEncryptionService:
             logger.error(f"📧 EMAIL: Level 1 OTP decryption failed: {e}")
             raise
     
-    async def encrypt_level_2_aes(self, message: str, user_email: str = "sender@qumail.com") -> Dict[str, Any]:
+    async def encrypt_level_2_aes(self, message: str, sender_email: str = "sender@qumail.com",
+                                   receiver_email: str = "") -> Dict[str, Any]:
         """Level 2: Quantum-Aided AES-256-GCM - Uses tested encrypt_aes"""
         try:
-            logger.info(f"📧 EMAIL: Level 2 AES encryption starting (message size: {len(message)} bytes, user: {user_email})")
-            result = await encrypt_aes(message, user_email)
+            logger.info(f"📧 EMAIL: Level 2 AES encryption starting (message size: {len(message)} bytes, sender: {sender_email}, receiver: {receiver_email})")
+            result = await encrypt_aes(message, sender_email, receiver_email=receiver_email)
             logger.info(f"📧 EMAIL: Level 2 AES encryption completed with flow_id {result['metadata']['flow_id']}")
             return result
         except Exception as e:
@@ -62,11 +64,12 @@ class QuantumEncryptionService:
             logger.error(f"📧 EMAIL: Level 2 AES decryption failed: {e}")
             raise
     
-    async def encrypt_level_3_pqc(self, message: str, user_email: str = "sender@qumail.com") -> Dict[str, Any]:
+    async def encrypt_level_3_pqc(self, message: str, sender_email: str = "sender@qumail.com",
+                                   receiver_email: str = "") -> Dict[str, Any]:
         """Level 3: Post-Quantum Cryptography - Uses tested encrypt_pqc"""
         try:
-            logger.info(f"📧 EMAIL: Level 3 PQC encryption starting (message size: {len(message)} bytes, user: {user_email})")
-            result = await encrypt_pqc(message, user_email)
+            logger.info(f"📧 EMAIL: Level 3 PQC encryption starting (message size: {len(message)} bytes, sender: {sender_email}, receiver: {receiver_email})")
+            result = await encrypt_pqc(message, sender_email, receiver_email=receiver_email)
             logger.info(f"📧 EMAIL: Level 3 PQC encryption completed with flow_id {result['metadata']['flow_id']}")
             return result
         except Exception as e:
@@ -85,11 +88,12 @@ class QuantumEncryptionService:
             logger.error(f"📧 EMAIL: Level 3 PQC decryption failed: {e}")
             raise
     
-    async def encrypt_level_4_standard(self, message: str, user_email: str = "sender@qumail.com") -> Dict[str, Any]:
+    async def encrypt_level_4_standard(self, message: str, sender_email: str = "sender@qumail.com",
+                                        receiver_email: str = "") -> Dict[str, Any]:
         """Level 4: Standard RSA Encryption - Uses tested encrypt_rsa"""
         try:
-            logger.info(f"📧 EMAIL: Level 4 RSA encryption starting (message size: {len(message)} bytes, user: {user_email})")
-            result = await encrypt_rsa(message, user_email)
+            logger.info(f"📧 EMAIL: Level 4 RSA encryption starting (message size: {len(message)} bytes, sender: {sender_email}, receiver: {receiver_email})")
+            result = await encrypt_rsa(message, sender_email, receiver_email=receiver_email)
             logger.info(f"📧 EMAIL: Level 4 RSA encryption completed with flow_id {result['metadata']['flow_id']}")
             return result
         except Exception as e:

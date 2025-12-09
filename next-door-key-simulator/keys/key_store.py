@@ -9,6 +9,8 @@ class KeyStore:
         self.container: list[dict[str, object]] = []
         self.key_pool = key_pool
         self.broadcaster = broadcaster
+        # Email to key association for receiver lookup
+        self.email_key_map: Dict[str, Dict[str, str]] = {}  # key_id -> {sender_email, receiver_email}
 
     def get_sae_key_container(self, master_sae_id: str, slave_sae_id) -> list:
         return list(filter(
@@ -30,8 +32,13 @@ class KeyStore:
         container = self.get_sae_key_container(master_sae_id, slave_sae_id)
 
         return [] if len(container) == 0 else container[0]['keys']
+    
+    def get_key_email_info(self, key_id: str) -> Optional[Dict[str, str]]:
+        """Get the email info associated with a key (for receiver verification)."""
+        return self.email_key_map.get(key_id)
 
-    def append_keys(self, master_sae_id: str, slave_sae_id: str, keys: list, do_broadcast: bool = True) -> list:
+    def append_keys(self, master_sae_id: str, slave_sae_id: str, keys: list, 
+                    do_broadcast: bool = True, sender_email: str = '', receiver_email: str = '') -> list:
         container = self.get_sae_key_container(master_sae_id, slave_sae_id)
 
         if len(container) == 0:
@@ -44,8 +51,22 @@ class KeyStore:
                     existing_container['slave_sae_id'] == slave_sae_id):
                     existing_container['keys'].extend(keys)
                     break
+        
+        # Store email association for each key (for receiver lookup)
+        if sender_email or receiver_email:
+            for key in keys:
+                key_id = key.get('key_ID')
+                if key_id:
+                    self.email_key_map[key_id] = {
+                        'sender_email': sender_email,
+                        'receiver_email': receiver_email,
+                        'master_sae_id': master_sae_id,
+                        'slave_sae_id': slave_sae_id
+                    }
+                    print(f'[KEY_STORE] Associated key {key_id[:16]}... with receiver: {receiver_email}')
 
         print(f'[KEY_STORE] append_keys called: master_sae_id={master_sae_id}, slave_sae_id={slave_sae_id}, keys={[k["key_ID"] for k in keys]}, do_broadcast={do_broadcast}')
+        print(f'[KEY_STORE] Email association: sender={sender_email}, receiver={receiver_email}')
         if do_broadcast:
             print(f'[KEY_STORE] Broadcasting keys to other KMEs (non-blocking)...')
             try:

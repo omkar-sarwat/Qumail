@@ -222,7 +222,7 @@ KyberKEM = MLKEM
 DilithiumSignature = MLDSA
 
 
-async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
+async def encrypt_pqc(content: str, user_email: str, receiver_email: str = "") -> Dict[str, Any]:
     """
     Level 3: Post-Quantum Cryptography encryption using PQCrypto
     
@@ -236,6 +236,7 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
     Args:
         content: The plaintext message to encrypt
         user_email: The sender's email address
+        receiver_email: The receiver's email address (for KME key association tracking)
         
     Returns:
         Dictionary containing encrypted content and metadata
@@ -244,7 +245,7 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
         plaintext = content.encode('utf-8')
         flow_id = secrets.token_hex(16)
         
-        logger.info(f"🔐 Starting Level 3 PQC encryption (flow: {flow_id}, size: {len(plaintext)} bytes)")
+        logger.info(f"🔐 Starting Level 3 PQC encryption (flow: {flow_id}, size: {len(plaintext)} bytes, sender: {user_email}, receiver: {receiver_email})")
         
         if PQC_AVAILABLE:
             logger.info("   Using PQCrypto: ML-KEM-1024 + ML-DSA-87")
@@ -415,7 +416,9 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
                 "security_level": 3,
                 "pqc_algorithms": ["ML-KEM-1024", "ML-DSA-87"],
                 "pqc_library": "pqcrypto" if PQC_AVAILABLE else "placeholder",
-                "cipher": "AES-256-GCM"
+                "cipher": "AES-256-GCM",
+                "sender_email": user_email,
+                "receiver_email": receiver_email
             }
         }
         

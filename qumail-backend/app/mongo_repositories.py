@@ -1,6 +1,6 @@
 """Repository pattern for MongoDB data access."""
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from .mongo_models import (
     UserDocument,
@@ -9,7 +9,13 @@ from .mongo_models import (
     EncryptionMetadataDocument,
     KeyUsageDocument,
     AttachmentDocument,
-    EmailDirection
+    EmailDirection,
+    # QKD Models
+    QKDKeyDocument,
+    QKDKeyState,
+    QKDSessionDocument,
+    QKDAuditLogDocument,
+    QKDKeyPoolStatusDocument
 )
 import logging
 
@@ -363,3 +369,504 @@ class AttachmentRepository:
         """Delete an attachment."""
         result = await self.collection.delete_one({"_id": attachment_id})
         return result.deleted_count > 0
+
+
+# ============================================================================
+# QKD (Quantum Key Distribution) Repositories
+# ============================================================================
+
+class QKDKeyRepository:
+    """Repository for QKD quantum key operations in MongoDB."""
+    
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.qkd_keys
+    
+    async def create(self, key: QKDKeyDocument) -> QKDKeyDocument:
+        """Store a new quantum key."""
+        await self.collection.insert_one(key.dict(by_alias=True))
+        logger.info(f"QKD Key stored in MongoDB: {key.key_id}")
+        return key
+    
+    async def find_by_key_id(self, key_id: str) -> Optional[QKDKeyDocument]:
+        """Find a quantum key by its key_id."""
+        doc = await self.collection.find_one({"key_id": key_id})
+        return QKDKeyDocument(**doc) if doc else None
+    
+    async def find_by_id(self, id: str) -> Optional[QKDKeyDocument]:
+        """Find a quantum key by MongoDB _id."""
+        doc = await self.collection.find_one({"_id": id})
+        return QKDKeyDocument(**doc) if doc else None
+    
+    async def find_by_flow_id(self, flow_id: str) -> List[QKDKeyDocument]:
+        """Find all keys associated with a flow ID."""
+        cursor = self.collection.find({"flow_id": flow_id})
+        docs = await cursor.to_list(length=None)
+        return [QKDKeyDocument(**doc) for doc in docs]
+    
+    async def find_by_email_id(self, email_id: str) -> List[QKDKeyDocument]:
+        """Find all keys associated with an email ID."""
+        cursor = self.collection.find({"email_id": email_id})
+        docs = await cursor.to_list(length=None)
+        return [QKDKeyDocument(**doc) for doc in docs]
+    
+    async def find_available_keys(
+        self, 
+        security_level: int = None,
+        limit: int = 10
+    ) -> List[QKDKeyDocument]:
+        """Find available (ready) keys, optionally filtered by security level."""
+        query = {"state": QKDKeyState.READY.value, "is_consumed": False}
+        if security_level:
+            query["security_level"] = security_level
+        
+        cursor = self.collection.find(query).sort("created_at", 1).limit(limit)
+        docs = await cursor.to_list(length=None)
+        return [QKDKeyDocument(**doc) for doc in docs]
+    
+    async def find_by_sender_receiver(
+        self, 
+        sender_email: str, 
+        receiver_email: str,
+        only_available: bool = True
+    ) -> List[QKDKeyDocument]:
+        """Find keys for a specific sender-receiver pair."""
+        query = {
+            "sender_email": sender_email,
+            "receiver_email": receiver_email
+        }
+        if only_available:
+            query["state"] = QKDKeyState.READY.value
+            query["is_consumed"] = False
+        
+        cursor = self.collection.find(query).sort("created_at", 1)
+        docs = await cursor.to_list(length=None)
+        return [QKDKeyDocument(**doc) for doc in docs]
+    
+    async def reserve_key(
+        self, 
+        key_id: str, 
+        user_id: str,
+        flow_id: str = None
+    ) -> bool:
+        """Reserve a key for encryption (marks it as reserved)."""
+        result = await self.collection.update_one(
+            {"key_id": key_id, "state": QKDKeyState.READY.value},
+            {
+                "$set": {
+                    "state": QKDKeyState.RESERVED.value,
+                    "reserved_by": user_id,
+                    "reserved_at": datetime.utcnow(),
+                    "flow_id": flow_id,
+                    "last_accessed_at": datetime.utcnow()
+                }
+            }
+        )
+        if result.modified_count > 0:
+            logger.info(f"QKD Key reserved: {key_id} by {user_id}")
+        return result.modified_count > 0
+    
+    async def consume_key(
+        self, 
+        key_id: str, 
+        user_id: str,
+        email_id: str = None
+    ) -> bool:
+        """Mark a key as consumed (one-time use)."""
+        result = await self.collection.update_one(
+            {"key_id": key_id, "is_consumed": False},
+            {
+                "$set": {
+                    "state": QKDKeyState.CONSUMED.value,
+                    "is_consumed": True,
+                    "consumed_by": user_id,
+                    "consumed_at": datetime.utcnow(),
+                    "email_id": email_id,
+                    "last_accessed_at": datetime.utcnow()
+                },
+                "$push": {
+                    "operation_history": {
+                        "operation": "CONSUMED",
+                        "user_id": user_id,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                }
+            }
+        )
+        if result.modified_count > 0:
+            logger.info(f"QKD Key consumed: {key_id} by {user_id}")
+        return result.modified_count > 0
+    
+    async def mark_expired(self, key_id: str) -> bool:
+        """Mark a key as expired."""
+        result = await self.collection.update_one(
+            {"key_id": key_id},
+            {
+                "$set": {
+                    "state": QKDKeyState.EXPIRED.value,
+                    "last_accessed_at": datetime.utcnow()
+                }
+            }
+        )
+        return result.modified_count > 0
+    
+    async def cleanup_expired_keys(self) -> int:
+        """Remove or mark expired keys. Returns count of affected keys."""
+        now = datetime.utcnow()
+        result = await self.collection.update_many(
+            {
+                "expires_at": {"$lt": now},
+                "state": {"$nin": [QKDKeyState.CONSUMED.value, QKDKeyState.EXPIRED.value]}
+            },
+            {"$set": {"state": QKDKeyState.EXPIRED.value}}
+        )
+        if result.modified_count > 0:
+            logger.info(f"Marked {result.modified_count} QKD keys as expired")
+        return result.modified_count
+    
+    async def get_statistics(self) -> Dict[str, Any]:
+        """Get QKD key pool statistics."""
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$state",
+                    "count": {"$sum": 1}
+                }
+            }
+        ]
+        cursor = self.collection.aggregate(pipeline)
+        stats = await cursor.to_list(length=None)
+        
+        result = {
+            "ready": 0,
+            "reserved": 0,
+            "consumed": 0,
+            "expired": 0,
+            "total": 0
+        }
+        for stat in stats:
+            state = stat["_id"]
+            count = stat["count"]
+            result[state] = count
+            result["total"] += count
+        
+        return result
+    
+    async def get_keys_by_user(
+        self, 
+        user_email: str, 
+        include_consumed: bool = False
+    ) -> List[QKDKeyDocument]:
+        """Get all keys associated with a user (as sender or receiver)."""
+        query = {
+            "$or": [
+                {"sender_email": user_email},
+                {"receiver_email": user_email}
+            ]
+        }
+        if not include_consumed:
+            query["is_consumed"] = False
+        
+        cursor = self.collection.find(query).sort("created_at", -1)
+        docs = await cursor.to_list(length=None)
+        return [QKDKeyDocument(**doc) for doc in docs]
+
+
+class QKDSessionRepository:
+    """Repository for QKD session operations in MongoDB."""
+    
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.qkd_sessions
+    
+    async def create(self, session: QKDSessionDocument) -> QKDSessionDocument:
+        """Create a new QKD session."""
+        await self.collection.insert_one(session.dict(by_alias=True))
+        logger.info(f"QKD Session created: {session.session_id}")
+        return session
+    
+    async def find_by_session_id(self, session_id: str) -> Optional[QKDSessionDocument]:
+        """Find a session by session_id."""
+        doc = await self.collection.find_one({"session_id": session_id})
+        return QKDSessionDocument(**doc) if doc else None
+    
+    async def find_by_flow_id(self, flow_id: str) -> Optional[QKDSessionDocument]:
+        """Find a session by flow_id."""
+        doc = await self.collection.find_one({"flow_id": flow_id})
+        return QKDSessionDocument(**doc) if doc else None
+    
+    async def find_active_sessions(
+        self, 
+        user_email: str = None
+    ) -> List[QKDSessionDocument]:
+        """Find active sessions, optionally filtered by user."""
+        query = {"is_active": True}
+        if user_email:
+            query["$or"] = [
+                {"sender_email": user_email},
+                {"receiver_email": user_email}
+            ]
+        
+        cursor = self.collection.find(query).sort("started_at", -1)
+        docs = await cursor.to_list(length=None)
+        return [QKDSessionDocument(**doc) for doc in docs]
+    
+    async def complete_session(
+        self, 
+        session_id: str, 
+        success: bool = True,
+        error_message: str = None
+    ) -> bool:
+        """Mark a session as completed."""
+        result = await self.collection.update_one(
+            {"session_id": session_id},
+            {
+                "$set": {
+                    "is_active": False,
+                    "is_successful": success,
+                    "completed_at": datetime.utcnow(),
+                    "error_message": error_message
+                }
+            }
+        )
+        return result.modified_count > 0
+    
+    async def add_key_to_session(
+        self, 
+        session_id: str, 
+        key_id: str,
+        key_size_bits: int = 256
+    ) -> bool:
+        """Add a key to a session's key list."""
+        result = await self.collection.update_one(
+            {"session_id": session_id},
+            {
+                "$push": {"key_ids": key_id},
+                "$inc": {
+                    "total_keys_used": 1,
+                    "total_bits_exchanged": key_size_bits
+                }
+            }
+        )
+        return result.modified_count > 0
+    
+    async def get_session_statistics(self) -> Dict[str, Any]:
+        """Get QKD session statistics."""
+        pipeline = [
+            {
+                "$group": {
+                    "_id": None,
+                    "total_sessions": {"$sum": 1},
+                    "active_sessions": {
+                        "$sum": {"$cond": ["$is_active", 1, 0]}
+                    },
+                    "successful_sessions": {
+                        "$sum": {"$cond": ["$is_successful", 1, 0]}
+                    },
+                    "total_keys_used": {"$sum": "$total_keys_used"},
+                    "total_bits_exchanged": {"$sum": "$total_bits_exchanged"}
+                }
+            }
+        ]
+        cursor = self.collection.aggregate(pipeline)
+        stats = await cursor.to_list(length=1)
+        
+        if stats:
+            return stats[0]
+        return {
+            "total_sessions": 0,
+            "active_sessions": 0,
+            "successful_sessions": 0,
+            "total_keys_used": 0,
+            "total_bits_exchanged": 0
+        }
+
+
+class QKDAuditLogRepository:
+    """Repository for QKD audit log operations in MongoDB."""
+    
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.qkd_audit_logs
+    
+    async def create(self, log: QKDAuditLogDocument) -> QKDAuditLogDocument:
+        """Create a new audit log entry."""
+        await self.collection.insert_one(log.dict(by_alias=True))
+        return log
+    
+    async def log_operation(
+        self,
+        operation: str,
+        key_id: str = None,
+        session_id: str = None,
+        flow_id: str = None,
+        user_email: str = None,
+        user_id: str = None,
+        success: bool = True,
+        error_message: str = None,
+        details: Dict[str, Any] = None,
+        severity: str = "INFO"
+    ) -> QKDAuditLogDocument:
+        """Convenience method to log a QKD operation."""
+        log = QKDAuditLogDocument(
+            operation=operation,
+            key_id=key_id,
+            session_id=session_id,
+            flow_id=flow_id,
+            user_email=user_email,
+            user_id=user_id,
+            success=success,
+            error_message=error_message,
+            details=details,
+            severity=severity
+        )
+        return await self.create(log)
+    
+    async def find_by_key_id(self, key_id: str) -> List[QKDAuditLogDocument]:
+        """Find all audit logs for a specific key."""
+        cursor = self.collection.find({"key_id": key_id}).sort("timestamp", -1)
+        docs = await cursor.to_list(length=None)
+        return [QKDAuditLogDocument(**doc) for doc in docs]
+    
+    async def find_by_session_id(self, session_id: str) -> List[QKDAuditLogDocument]:
+        """Find all audit logs for a specific session."""
+        cursor = self.collection.find({"session_id": session_id}).sort("timestamp", -1)
+        docs = await cursor.to_list(length=None)
+        return [QKDAuditLogDocument(**doc) for doc in docs]
+    
+    async def find_by_user(
+        self, 
+        user_email: str, 
+        limit: int = 100
+    ) -> List[QKDAuditLogDocument]:
+        """Find audit logs for a specific user."""
+        cursor = self.collection.find(
+            {"user_email": user_email}
+        ).sort("timestamp", -1).limit(limit)
+        docs = await cursor.to_list(length=None)
+        return [QKDAuditLogDocument(**doc) for doc in docs]
+    
+    async def find_by_operation(
+        self, 
+        operation: str, 
+        limit: int = 100
+    ) -> List[QKDAuditLogDocument]:
+        """Find audit logs by operation type."""
+        cursor = self.collection.find(
+            {"operation": operation}
+        ).sort("timestamp", -1).limit(limit)
+        docs = await cursor.to_list(length=None)
+        return [QKDAuditLogDocument(**doc) for doc in docs]
+    
+    async def find_errors(self, limit: int = 100) -> List[QKDAuditLogDocument]:
+        """Find failed operations."""
+        cursor = self.collection.find(
+            {"success": False}
+        ).sort("timestamp", -1).limit(limit)
+        docs = await cursor.to_list(length=None)
+        return [QKDAuditLogDocument(**doc) for doc in docs]
+    
+    async def find_recent(
+        self, 
+        hours: int = 24, 
+        limit: int = 100
+    ) -> List[QKDAuditLogDocument]:
+        """Find recent audit logs."""
+        since = datetime.utcnow() - timedelta(hours=hours)
+        cursor = self.collection.find(
+            {"timestamp": {"$gte": since}}
+        ).sort("timestamp", -1).limit(limit)
+        docs = await cursor.to_list(length=None)
+        return [QKDAuditLogDocument(**doc) for doc in docs]
+
+
+class QKDKeyPoolStatusRepository:
+    """Repository for QKD key pool status monitoring in MongoDB."""
+    
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.qkd_pool_status
+    
+    async def upsert(self, status: QKDKeyPoolStatusDocument) -> QKDKeyPoolStatusDocument:
+        """Create or update pool status."""
+        status.updated_at = datetime.utcnow()
+        await self.collection.update_one(
+            {"kme_id": status.kme_id, "sae_id": status.sae_id},
+            {"$set": status.dict(by_alias=True)},
+            upsert=True
+        )
+        return status
+    
+    async def find_by_kme(self, kme_id: str) -> Optional[QKDKeyPoolStatusDocument]:
+        """Find pool status for a specific KME."""
+        doc = await self.collection.find_one({"kme_id": kme_id})
+        return QKDKeyPoolStatusDocument(**doc) if doc else None
+    
+    async def get_all_status(self) -> List[QKDKeyPoolStatusDocument]:
+        """Get status for all key pools."""
+        cursor = self.collection.find({})
+        docs = await cursor.to_list(length=None)
+        return [QKDKeyPoolStatusDocument(**doc) for doc in docs]
+    
+    async def update_key_counts(
+        self,
+        kme_id: str,
+        available: int = None,
+        reserved: int = None,
+        consumed: int = None,
+        expired: int = None
+    ) -> bool:
+        """Update key counts for a pool."""
+        updates = {"updated_at": datetime.utcnow()}
+        if available is not None:
+            updates["available_keys"] = available
+        if reserved is not None:
+            updates["reserved_keys"] = reserved
+        if consumed is not None:
+            updates["consumed_keys"] = consumed
+        if expired is not None:
+            updates["expired_keys"] = expired
+        
+        result = await self.collection.update_one(
+            {"kme_id": kme_id},
+            {"$set": updates}
+        )
+        return result.modified_count > 0
+    
+    async def record_key_generated(self, kme_id: str) -> bool:
+        """Record that a key was generated."""
+        result = await self.collection.update_one(
+            {"kme_id": kme_id},
+            {
+                "$set": {"last_key_generated": datetime.utcnow()},
+                "$inc": {"available_keys": 1, "total_keys": 1}
+            }
+        )
+        return result.modified_count > 0
+    
+    async def record_key_consumed(self, kme_id: str) -> bool:
+        """Record that a key was consumed."""
+        result = await self.collection.update_one(
+            {"kme_id": kme_id},
+            {
+                "$set": {"last_key_consumed": datetime.utcnow()},
+                "$inc": {"consumed_keys": 1, "available_keys": -1}
+            }
+        )
+        return result.modified_count > 0
+    
+    async def update_health_status(
+        self, 
+        kme_id: str, 
+        is_healthy: bool,
+        error_count: int = None
+    ) -> bool:
+        """Update health status for a pool."""
+        updates = {
+            "is_healthy": is_healthy,
+            "last_health_check": datetime.utcnow()
+        }
+        if error_count is not None:
+            updates["error_count"] = error_count
+        
+        result = await self.collection.update_one(
+            {"kme_id": kme_id},
+            {"$set": updates}
+        )
+        return result.modified_count > 0

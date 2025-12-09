@@ -26,7 +26,9 @@ KM1_MASTER_SAE_ID = "25840139-0dd4-49ae-ba1e-b86731601803"
 KM2_SAE_ID = "c565d5aa-8670-4446-8471-b0e53e315d2a"
 
 
-async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = None, db_session: Optional[Any] = None, flow_id: Optional[str] = None) -> Dict[str, Any]:
+async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = None, 
+                      db_session: Optional[Any] = None, flow_id: Optional[str] = None,
+                      receiver_email: str = "") -> Dict[str, Any]:
     """
     Level 1: One-Time Pad encryption using quantum keys from KME servers
     
@@ -41,6 +43,7 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
         qkd_key: Optional pre-provided quantum key (for testing only)
         db_session: Database session (optional, not used with in-memory cache)
         flow_id: Email flow ID for tracking
+        receiver_email: Email of the receiver (for KME key association tracking)
     
     Returns:
         Dict containing encrypted content and metadata
@@ -59,6 +62,7 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
         logger.info("="*80)
         logger.info("LEVEL 1 OTP-QKD ENCRYPTION START (ETSI GS QKD 014)")
         logger.info(f"  Sender: {user_email}")
+        logger.info(f"  Receiver: {receiver_email}")
         logger.info(f"  Flow ID: {flow_id}")
         logger.info(f"  Content size: {required_bytes} bytes")
         logger.info(f"  Total Key Request: {total_key_bytes} bytes (Content + 32 bytes HMAC)")
@@ -364,7 +368,9 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
                 "quantum_enhanced": True,
                 "one_time_pad": True,
                 "etsi_qkd_014": True,
-                "synchronized_keys": True
+                "synchronized_keys": True,
+                "sender_email": user_email,  # For receiver identification
+                "receiver_email": receiver_email  # For receiver identification
             }
         }
         

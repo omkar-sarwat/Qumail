@@ -10,14 +10,21 @@ import re
 import inspect
 import html
 import textwrap
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Set
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from email.utils import parseaddr
 
-from ..mongo_models import EmailDocument, EmailDirection, KeyUsageDocument
-from ..mongo_repositories import EmailRepository, KeyUsageRepository, UserRepository
+from ..mongo_models import (
+    EmailDocument, EmailDirection, KeyUsageDocument,
+    QKDKeyDocument, QKDKeyState, QKDSessionDocument, QKDAuditLogDocument
+)
+from ..mongo_repositories import (
+    EmailRepository, KeyUsageRepository, UserRepository,
+    QKDKeyRepository, QKDSessionRepository, QKDAuditLogRepository
+)
 from .encryption.complete_encryption_service import complete_encryption_service
 from .encryption.quantum_key_pool import quantum_key_pool
 from .gmail_service import GmailService
@@ -55,13 +62,37 @@ class CompleteEmailService:
         Send email with specified security level encryption
         
         Flow:
-        1. Encrypt subject and body with chosen security level
-        2. Store encryption metadata in local database
-        3. Send encrypted content to Gmail
-        4. Gmail stores only encrypted data
+        1. Verify recipient is a registered QuMail user
+        2. Encrypt subject and body with chosen security level
+        3. Store encryption metadata in local database
+        4. Send encrypted content to Gmail
+        5. Gmail stores only encrypted data
         """
         try:
             logger.info(f"Sending encrypted email with security level {security_level}")
+            
+            # ========== QUMAIL USER VERIFICATION ==========
+            # Only allow sending encrypted emails to registered QuMail users
+            # Non-QuMail users cannot decrypt quantum-encrypted emails
+            if db:
+                user_repo = UserRepository(db)
+                
+                # Check if recipient is a registered QuMail user
+                recipient_user = await user_repo.find_by_email(recipient_email)
+                
+                if not recipient_user:
+                    logger.warning(f"Recipient {recipient_email} is NOT a registered QuMail user - blocking encrypted email")
+                    return {
+                        'success': False,
+                        'error': 'recipient_not_qumail_user',
+                        'message': f"Cannot send encrypted email to {recipient_email}. Recipient is not a registered QuMail user and cannot decrypt quantum-encrypted emails. Please ask them to register at QuMail first.",
+                        'recipient_email': recipient_email
+                    }
+                
+                logger.info(f"✓ Recipient {recipient_email} verified as QuMail user (ID: {recipient_user.user_id})")
+            else:
+                logger.warning("No database connection - skipping QuMail user verification")
+            # ================================================
             
             # Prepare message for encryption
             message_data = {
@@ -77,8 +108,10 @@ class CompleteEmailService:
             message_json = json.dumps(message_data)
             # Encryption functions expect STRING not bytes
             
-            # Encrypt based on security level
-            encryption_result = await self._encrypt_by_level(security_level, message_json, sender_email)
+            # Encrypt based on security level (pass both sender and receiver for KME key association)
+            encryption_result = await self._encrypt_by_level(
+                security_level, message_json, sender_email, recipient_email
+            )
             
             # Generate unique flow ID
             flow_id = encryption_result['metadata'].get('flow_id', str(uuid.uuid4()))
@@ -95,6 +128,96 @@ class CompleteEmailService:
                 bcc
             )
             allowed_email_list = sorted(allowed_email_set) if allowed_email_set else None
+
+            # ========== STORE QKD DATA IN MONGODB ==========
+            # Store quantum key information in MongoDB for full lifecycle tracking
+            if db and metadata.get('key_id') or metadata.get('key_fragments'):
+                try:
+                    qkd_key_repo = QKDKeyRepository(db)
+                    qkd_audit_repo = QKDAuditLogRepository(db)
+                    qkd_session_repo = QKDSessionRepository(db)
+                    
+                    # Create QKD Session for this email
+                    qkd_session = QKDSessionDocument(
+                        flow_id=flow_id,
+                        sender_email=sender_email,
+                        sender_sae_id="25840139-0dd4-49ae-ba1e-b86731601803",  # KME1 SAE ID
+                        receiver_email=recipient_email,
+                        receiver_sae_id="c565d5aa-8670-4446-8471-b0e53e315d2a",  # KME2 SAE ID
+                        security_level=security_level,
+                        encryption_algorithm=encryption_result.get('algorithm'),
+                        is_active=False,  # Session completes immediately for email
+                        is_successful=True,
+                        completed_at=datetime.utcnow(),
+                        expires_at=datetime.utcnow() + timedelta(hours=24)
+                    )
+                    await qkd_session_repo.create(qkd_session)
+                    
+                    # Store individual QKD keys
+                    key_fragments = metadata.get('key_fragments', [])
+                    if not key_fragments and metadata.get('key_id'):
+                        key_fragments = [metadata.get('key_id')]
+                    
+                    for idx, key_id in enumerate(key_fragments):
+                        qkd_key = QKDKeyDocument(
+                            key_id=key_id,
+                            kme1_key_id=key_id,
+                            source_kme="KME1",
+                            sae1_id="25840139-0dd4-49ae-ba1e-b86731601803",
+                            sae2_id="c565d5aa-8670-4446-8471-b0e53e315d2a",
+                            sender_email=sender_email,
+                            receiver_email=recipient_email,
+                            flow_id=flow_id,
+                            security_level=security_level,
+                            algorithm=encryption_result.get('algorithm'),
+                            state=QKDKeyState.CONSUMED,  # Key is consumed immediately for email
+                            is_consumed=True,
+                            consumed_by=sender_user_id,
+                            consumed_at=datetime.utcnow(),
+                            key_size_bits=metadata.get('key_size', 256) * 8 if metadata.get('key_size') else 256,
+                            expires_at=datetime.utcnow() + timedelta(hours=24),
+                            quantum_grade=True,
+                            entropy_score=metadata.get('entropy', 1.0),
+                            operation_history=[{
+                                "operation": "USED_FOR_EMAIL_ENCRYPTION",
+                                "timestamp": datetime.utcnow().isoformat(),
+                                "flow_id": flow_id,
+                                "security_level": security_level
+                            }]
+                        )
+                        await qkd_key_repo.create(qkd_key)
+                        
+                        # Add key to session
+                        await qkd_session_repo.add_key_to_session(
+                            qkd_session.session_id, 
+                            key_id,
+                            key_size_bits=qkd_key.key_size_bits
+                        )
+                    
+                    # Log the QKD operation
+                    await qkd_audit_repo.log_operation(
+                        operation="EMAIL_ENCRYPTED",
+                        key_id=metadata.get('key_id'),
+                        session_id=qkd_session.session_id,
+                        flow_id=flow_id,
+                        user_email=sender_email,
+                        user_id=sender_user_id,
+                        success=True,
+                        details={
+                            "security_level": security_level,
+                            "algorithm": encryption_result.get('algorithm'),
+                            "receiver_email": recipient_email,
+                            "key_count": len(key_fragments),
+                            "encrypted_size": len(encrypted_data) if encrypted_data else 0
+                        }
+                    )
+                    
+                    logger.info(f"[QKD MongoDB] Stored {len(key_fragments)} key(s) and session for flow {flow_id}")
+                    
+                except Exception as qkd_err:
+                    logger.warning(f"[QKD MongoDB] Failed to store QKD data: {qkd_err}")
+                    # Don't fail the email send if QKD storage fails
+            # ================================================
 
             # Create email record in database with encryption metadata
             # Store auth_tag in metadata so it's available during decryption
@@ -470,16 +593,24 @@ class CompleteEmailService:
             allowed.update(cls._expand_address_field(extra_addresses))
         return allowed
 
-    async def _encrypt_by_level(self, security_level: int, content: str, user_email: str) -> Dict[str, Any]:
-        """Route encryption requests to the correct level while validating input."""
+    async def _encrypt_by_level(self, security_level: int, content: str, 
+                                 sender_email: str, receiver_email: str = '') -> Dict[str, Any]:
+        """Route encryption requests to the correct level while validating input.
+        
+        Args:
+            security_level: Encryption level (1-4)
+            content: Content to encrypt
+            sender_email: Sender's email for key association
+            receiver_email: Receiver's email for key association
+        """
         if security_level == 1:
-            return await self.encryption_service.encrypt_level_1_otp(content, user_email)
+            return await self.encryption_service.encrypt_level_1_otp(content, sender_email, receiver_email)
         if security_level == 2:
-            return await self.encryption_service.encrypt_level_2_aes(content, user_email)
+            return await self.encryption_service.encrypt_level_2_aes(content, sender_email, receiver_email)
         if security_level == 3:
-            return await self.encryption_service.encrypt_level_3_pqc(content, user_email)
+            return await self.encryption_service.encrypt_level_3_pqc(content, sender_email, receiver_email)
         if security_level == 4:
-            return await self.encryption_service.encrypt_level_4_standard(content, user_email)
+            return await self.encryption_service.encrypt_level_4_standard(content, sender_email, receiver_email)
         raise ValueError(f"Invalid security level: {security_level}")
 
     async def _decrypt_by_level(
@@ -884,6 +1015,27 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
             email.decrypted_body = decrypted_json
             await email_repo.update(email.id, {"decrypted_body": decrypted_json})
             logger.info(f"✓ Cached decrypted content for email {email_id} - future views will be instant")
+            
+            # ========== LOG QKD DECRYPTION IN MONGODB ==========
+            try:
+                qkd_audit_repo = QKDAuditLogRepository(db)
+                await qkd_audit_repo.log_operation(
+                    operation="EMAIL_DECRYPTED",
+                    key_id=email.encryption_key_id,
+                    flow_id=email.flow_id,
+                    user_email=email.receiver_email,
+                    success=True,
+                    details={
+                        "security_level": email.security_level,
+                        "algorithm": email.encryption_algorithm,
+                        "sender_email": email.sender_email,
+                        "attachment_count": len(decrypted_attachments)
+                    }
+                )
+                logger.info(f"[QKD MongoDB] Logged decryption for flow {email.flow_id}")
+            except Exception as qkd_err:
+                logger.warning(f"[QKD MongoDB] Failed to log decryption: {qkd_err}")
+            # ====================================================
             
             # Mark key as consumed in shared pool (permanently remove)
             # This ensures true OTP security (key used once) while allowing retry if decryption fails before caching

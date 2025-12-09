@@ -530,6 +530,18 @@ async def send_quantum_email(
             gmail_credentials=gmail_credentials
         )
 
+        # Check if recipient is not a registered QuMail user
+        if result.get("error") == "recipient_not_qumail_user":
+            logger.warning(f"⛔ Recipient {primary_recipient} is not a QuMail user - blocking encrypted email")
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "recipient_not_qumail_user",
+                    "message": result.get("message"),
+                    "recipient_email": result.get("recipient_email")
+                }
+            )
+
         sent_via_gmail = bool(result.get("gmail_message_id"))
 
         email_uuid = str(result.get("email_id"))

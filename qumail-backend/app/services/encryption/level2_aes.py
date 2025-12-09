@@ -22,7 +22,7 @@ class Level2SecurityError(SecurityError):
     """Level 2 AES specific security errors"""
     pass
 
-async def encrypt_aes(content: str, user_email: str) -> Dict[str, Any]:
+async def encrypt_aes(content: str, user_email: str, receiver_email: str = "") -> Dict[str, Any]:
     """
     Level 2: Quantum-Enhanced AES-256-GCM encryption
     
@@ -32,12 +32,17 @@ async def encrypt_aes(content: str, user_email: str) -> Dict[str, Any]:
     - Keys from LOCAL KEY MANAGER (with fallback to main KME)
     - Digital signature for authenticity
     - Nonce-based security
+    
+    Args:
+        content: The plaintext content to encrypt
+        user_email: Email of the sender
+        receiver_email: Email of the receiver (for KME key association tracking)
     """
     try:
         plaintext = content.encode('utf-8')
         flow_id = secrets.token_hex(16)
         
-        logger.info(f"Level 2 AES encryption starting, flow {flow_id}")
+        logger.info(f"Level 2 AES encryption starting, flow {flow_id}, sender: {user_email}, receiver: {receiver_email}")
         
         # Initialize Local Key Manager
         local_km = get_local_key_manager()
@@ -164,7 +169,9 @@ async def encrypt_aes(content: str, user_email: str) -> Dict[str, Any]:
                 },
                 "security_level": 2,
                 "key_derivation": "HKDF-SHA256",
-                "cipher": "AES-256-GCM"
+                "cipher": "AES-256-GCM",
+                "sender_email": user_email,
+                "receiver_email": receiver_email
             }
         }
         

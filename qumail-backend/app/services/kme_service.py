@@ -180,10 +180,18 @@ class KmeService:
             logger.error(f"Error getting key status from KME {server_id}: {e}")
             raise KmeServiceError(f"Failed to get key status: {str(e)}")
     
-    async def get_encryption_keys(self, server_id: int, slave_sae_id: int, count: int = 1) -> List[Dict[str, Any]]:
+    async def get_encryption_keys(self, server_id: int, slave_sae_id: int, count: int = 1,
+                                   sender_email: str = '', receiver_email: str = '') -> List[Dict[str, Any]]:
         """
         Get encryption keys from the KME server
         As the master SAE, we get the encrypted keys that we will send to the slave SAE
+        
+        Args:
+            server_id: KME server ID (1 for sender, 2 for receiver)
+            slave_sae_id: The target SAE ID
+            count: Number of keys to request
+            sender_email: Sender's email for key association tracking
+            receiver_email: Receiver's email for key association tracking
         """
         server_config = next((s for s in self.kme_servers if s["id"] == server_id), None)
         if not server_config:
@@ -194,11 +202,20 @@ class KmeService:
             
             url = f"{server_config['base_url']}/api/v1/keys/{slave_sae_id}/enc_keys"
             
+            # Add email headers for key association tracking
+            headers = {}
+            if sender_email:
+                headers['X-Sender-Email'] = sender_email
+            if receiver_email:
+                headers['X-Receiver-Email'] = receiver_email
+            
+            logger.info(f"[KME] Requesting {count} enc_keys from KME {server_id} for {sender_email} -> {receiver_email}")
+            
             if count > 1:
                 # Use POST for multiple keys
                 data = {"number": count}
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(url, json=data, ssl=ssl_context) as response:
+                    async with session.post(url, json=data, ssl=ssl_context, headers=headers) as response:
                         if response.status != 200:
                             error_text = await response.text()
                             logger.error(f"Failed to get encryption keys: {response.status}, {error_text}")
@@ -209,7 +226,7 @@ class KmeService:
             else:
                 # Use GET for a single key
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(url, ssl=ssl_context) as response:
+                    async with session.get(url, ssl=ssl_context, headers=headers) as response:
                         if response.status != 200:
                             error_text = await response.text()
                             logger.error(f"Failed to get encryption key: {response.status}, {error_text}")
@@ -225,10 +242,17 @@ class KmeService:
             logger.error(f"Error getting encryption keys from KME {server_id}: {e}")
             raise KmeServiceError(f"Failed to get encryption keys: {str(e)}")
     
-    async def get_decryption_key(self, server_id: int, master_sae_id: int, key_id: str) -> Dict[str, Any]:
+    async def get_decryption_key(self, server_id: int, master_sae_id: int, key_id: str,
+                                  receiver_email: str = '') -> Dict[str, Any]:
         """
         Get decryption key from the KME server
         As the slave SAE, we use the key_id sent by the master SAE to get the actual key
+        
+        Args:
+            server_id: KME server ID (2 for receiver's KME)
+            master_sae_id: The sender's SAE ID
+            key_id: The key ID to retrieve
+            receiver_email: Receiver's email for verification
         """
         server_config = next((s for s in self.kme_servers if s["id"] == server_id), None)
         if not server_config:
@@ -240,8 +264,15 @@ class KmeService:
             url = f"{server_config['base_url']}/api/v1/keys/{master_sae_id}/dec_keys"
             params = {"key_ID": key_id}
             
+            # Add receiver email header for verification
+            headers = {}
+            if receiver_email:
+                headers['X-Receiver-Email'] = receiver_email
+            
+            logger.info(f"[KME] Requesting dec_keys from KME {server_id} for key {key_id[:16]}... receiver: {receiver_email}")
+            
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, ssl=ssl_context) as response:
+                async with session.get(url, params=params, ssl=ssl_context, headers=headers) as response:
                     if response.status != 200:
                         error_text = await response.text()
                         logger.error(f"Failed to get decryption key: {response.status}, {error_text}")

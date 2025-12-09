@@ -158,6 +158,43 @@ export const useComposerStore = create<ComposerState>((set, get) => ({
       
       set({ isSending: true })
       
+      // Validate that all recipients are registered QuMail users (for encrypted emails)
+      if (draft.securityLevel && draft.securityLevel >= 1) {
+        try {
+          // Collect all recipient emails
+          const allRecipients: string[] = []
+          if (draft.to) {
+            allRecipients.push(...draft.to.split(',').map(e => e.trim()).filter(e => e))
+          }
+          if (draft.cc) {
+            allRecipients.push(...draft.cc.split(',').map(e => e.trim()).filter(e => e))
+          }
+          if (draft.bcc) {
+            allRecipients.push(...draft.bcc.split(',').map(e => e.trim()).filter(e => e))
+          }
+          
+          if (allRecipients.length > 0) {
+            const checkResult = await apiService.checkQuMailUsers(allRecipients)
+            const nonQuMailUsers = allRecipients.filter(
+              email => !checkResult.results[email]?.is_qumail_user
+            )
+            
+            if (nonQuMailUsers.length > 0) {
+              set({ isSending: false })
+              const userList = nonQuMailUsers.join(', ')
+              toast.error(
+                `Cannot send encrypted email. The following recipients are not registered QuMail users: ${userList}. They need to sign up for QuMail first.`,
+                { duration: 6000 }
+              )
+              return false
+            }
+          }
+        } catch (error) {
+          console.warn('Could not verify QuMail users, proceeding with send:', error)
+          // Continue with send - server will also validate
+        }
+      }
+      
       // Prepare email data
       const emailData = {
         to: draft.to,
@@ -203,7 +240,21 @@ export const useComposerStore = create<ComposerState>((set, get) => ({
       
     } catch (error: any) {
       console.error('Failed to send email:', error)
-      const errorMessage = error.response?.data?.detail || 'Failed to send email'
+      
+      // Check for specific error types
+      const errorData = error.response?.data?.detail
+      let errorMessage = 'Failed to send email'
+      
+      // Handle structured error object
+      if (errorData && typeof errorData === 'object') {
+        if (errorData.error === 'recipient_not_qumail_user') {
+          errorMessage = `Cannot send encrypted email: ${errorData.recipient_email} is not a registered QuMail user. They need to sign up for QuMail first to receive quantum-encrypted emails.`
+        } else if (errorData.message) {
+          errorMessage = errorData.message
+        }
+      } else if (typeof errorData === 'string') {
+        errorMessage = errorData
+      }
       
       set({ isSending: false })
       toast.error(errorMessage)

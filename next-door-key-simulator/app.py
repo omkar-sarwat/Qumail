@@ -2,10 +2,12 @@ import flask
 import urllib3
 import os
 from dotenv import load_dotenv
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from markupsafe import escape
 
 from server.app import App
+from router.user_keys import register_user_keys_routes
+from keys.local_key_manager import start_local_km, get_local_km
 
 # Don't clear environment variables - Render needs them!
 # Only clear if we're loading from .env files and they conflict
@@ -29,17 +31,11 @@ elif kme_id == '2':
 instance = Flask(__name__)
 app = App(instance)
 
+# Register user key pool routes (ETSI GS QKD 014 compliant)
+register_user_keys_routes(instance)
 
-def main():
-    # Disable unsecure HTTPS warnings (e.g. invalid certificate)
-    urllib3.disable_warnings()
-
-    try:
-        app.start()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        app.stop()
+# Initialize Local Key Manager (for per-user key pools)
+local_km = None
 
 
 @instance.before_request
@@ -82,6 +78,8 @@ def key_remove_exchange():
     return app.internal_routes.do_remove_kme_key(request)
 
 
+# Original ETSI QKD 014 routes using SharedKeyPool
+# These handle the actual quantum key delivery between KME1 and KME2
 @instance.route('/api/v1/keys/<slave_sae_id>/status')
 def get_status(slave_sae_id):
     return app.external_routes.get_status(request, escape(slave_sae_id))
@@ -100,6 +98,36 @@ def get_key_with_ids(master_sae_id):
 @instance.route('/api/v1/keys/mark_consumed', methods=['POST'])
 def mark_consumed():
     return app.external_routes.mark_consumed(request)
+
+
+# Health check endpoint
+@instance.route('/health')
+def health():
+    return jsonify({
+        'status': 'healthy',
+        'kme_id': os.getenv('KME_ID', 'unknown'),
+        'user_pool_enabled': True
+    })
+
+
+def main():
+    global local_km
+    
+    # Disable unsecure HTTPS warnings (e.g. invalid certificate)
+    urllib3.disable_warnings()
+
+    try:
+        # Start Local Key Manager for per-user key pools
+        local_km = start_local_km()
+        print("[MAIN] Local Key Manager started")
+        
+        app.start()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if local_km:
+            local_km.stop()
+        app.stop()
 
 
 if __name__ == '__main__':

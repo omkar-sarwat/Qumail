@@ -24,11 +24,19 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-async def encrypt_rsa(content: str, user_email: str) -> Dict[str, Any]:
-    """Level 4: RSA-4096 + AES-256-GCM hybrid encryption with quantum enhancement"""
+async def encrypt_rsa(content: str, user_email: str, receiver_email: str = "") -> Dict[str, Any]:
+    """Level 4: RSA-4096 + AES-256-GCM hybrid encryption with quantum enhancement
+    
+    Args:
+        content: The plaintext content to encrypt
+        user_email: Email of the sender
+        receiver_email: Email of the receiver (for tracking)
+    """
     try:
         plaintext = content.encode("utf-8")
         flow_id = secrets.token_hex(16)
+        
+        logger.info(f"Level 4 RSA encryption starting, flow {flow_id}, sender: {user_email}, receiver: {receiver_email}")
         
         # Generate RSA-4096 key pair
         rsa_private_key = rsa.generate_private_key(
@@ -112,6 +120,8 @@ async def encrypt_rsa(content: str, user_email: str) -> Dict[str, Any]:
                 "security_level": 4,
                 "quantum_enhanced": quantum_enhanced,
                 "private_key_ref": private_key_ref,
+                "sender_email": user_email,
+                "receiver_email": receiver_email
             }
         }
         

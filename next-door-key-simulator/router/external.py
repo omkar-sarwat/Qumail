@@ -50,12 +50,23 @@ class External:
     def get_key(self, request: flask.Request, slave_sae_id: str):
         security.ensure_valid_sae_id(request)
 
+        # Get sender/receiver email from headers (for user tracking)
+        sender_email = request.headers.get('X-Sender-Email', '')
+        receiver_email = request.headers.get('X-Receiver-Email', slave_sae_id)
+        
         if request.method == 'POST':
             data = request.get_json()
 
             # Get data (ETSI QKD-014 uses BITS)
             number_of_keys = data.get('number', 1)
             key_size = data.get('size', int(os.getenv('DEFAULT_KEY_SIZE')) * 8)
+            
+            # Also check for email in request body
+            if not sender_email:
+                sender_email = data.get('sender_email', '')
+            if not receiver_email or receiver_email == slave_sae_id:
+                receiver_email = data.get('receiver_email', slave_sae_id)
+            
             print(f'[ENC_KEYS] Requested key size (bits): {key_size}')
         else:
             # GET request, use default values
@@ -113,6 +124,7 @@ class External:
         print(f'[ENC_KEYS] Generated {len(keys)} keys for encryption')
         print(f'[ENC_KEYS] Key IDs: {[k["key_ID"] for k in keys]}')
         print(f'[ENC_KEYS] SAE pair: master={master_sae_id}, slave={slave_sae_id}')
+        print(f'[ENC_KEYS] User pair: sender={sender_email}, receiver={receiver_email}')
         print(f'[ENC_KEYS] Calling append_keys with do_broadcast=True (default)')
         # Log decoded key sizes for debugging (base64 -> bytes length)
         try:
@@ -122,10 +134,18 @@ class External:
         except Exception:
             print('[ENC_KEYS] Could not decode key sizes for logging')
 
-        self.key_store.append_keys(master_sae_id, slave_sae_id, keys, do_broadcast=True)
+        # Store keys with user association for receiver lookup
+        self.key_store.append_keys(master_sae_id, slave_sae_id, keys, do_broadcast=True,
+                                   sender_email=sender_email, receiver_email=receiver_email)
         print(f'[ENC_KEYS] append_keys completed, keys should be stored and broadcasted')
 
-        return {'keys': keys}
+        # Return keys with receiver info so client can verify
+        return {
+            'keys': keys,
+            'receiver_sae_id': slave_sae_id,
+            'receiver_email': receiver_email,
+            'sender_email': sender_email
+        }
 
     def get_key_with_ids(self, request: flask.Request, master_sae_id: str):
         security.ensure_valid_sae_id(request)
@@ -140,6 +160,10 @@ class External:
             # HTTP mode - get from header or use the attached SAE ID
             slave_sae_id = request.headers.get('X-SAE-ID', os.getenv('ATTACHED_SAE_ID', ''))
             print(f"[HTTP MODE] Using slave_sae_id from header/env: {slave_sae_id}")
+        
+        # Get receiver email from header for verification
+        receiver_email = request.headers.get('X-Receiver-Email', '')
+        print(f"[DEC_KEYS] Receiver email from header: {receiver_email}")
 
         # Validate data - but allow empty key_store for cloud mode with shared pool
         has_keys = (
@@ -266,6 +290,22 @@ class External:
             print(f"[DEC_KEYS WARNING] Requested {len(requested_keys)} keys but only found {len(selected_keys)}. Returning partial result.")
             # Return partial result with found keys, but indicate missing keys
             return {'message': 'Some requested keys missing, returning available keys.', 'keys': selected_keys}, 206
+
+        # RECEIVER VERIFICATION: Check if the requesting receiver matches the intended receiver
+        if receiver_email:
+            for key in selected_keys:
+                key_id = key.get('key_ID')
+                if key_id:
+                    email_info = self.key_store.get_key_email_info(key_id)
+                    if email_info:
+                        intended_receiver = email_info.get('receiver_email', '')
+                        if intended_receiver and intended_receiver != receiver_email:
+                            print(f"[DEC_KEYS SECURITY] WARNING: Key {key_id[:16]}... intended for {intended_receiver} but requested by {receiver_email}")
+                            # Still allow but log the discrepancy (for debugging)
+                        else:
+                            print(f"[DEC_KEYS] ✓ Key {key_id[:16]}... verified for receiver: {receiver_email}")
+                    else:
+                        print(f"[DEC_KEYS] Key {key_id[:16]}... has no email association (may be from shared pool)")
 
         # OTP CONSUMPTION: Remove keys from KeyStore after successful retrieval (true one-time use)
         print(f"[DEC_KEYS] Removing {len(selected_keys)} keys from KeyStore (OTP consumption)")

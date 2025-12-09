@@ -395,6 +395,24 @@ class ApiService {
     await this.api.post(this.withPrefix(`/emails/${emailId}/archive`))
   }
 
+  // Check QuMail Users
+  async checkQuMailUsers(emails: string[]): Promise<{
+    results: Record<string, {
+      is_qumail_user: boolean
+      display_name?: string
+      error?: string
+    }>
+  }> {
+    const response = await this.api.post<{
+      results: Record<string, {
+        is_qumail_user: boolean
+        display_name?: string
+        error?: string
+      }>
+    }>(this.withPrefix('/users/check'), { emails })
+    return response.data
+  }
+
   // Compose and Send
   async sendEmail(emailData: {
     to: string

@@ -50,6 +50,10 @@ class QuantumEncryptionService:
             gmail_credentials=None,
         )
 
+        # Check if recipient is not a registered QuMail user
+        if result.get("error") == "recipient_not_qumail_user":
+            raise ValueError(result.get("message", f"Recipient {receiver_email} is not a registered QuMail user"))
+
         details = result.get("encryption_details", {})
         repo = EmailRepository(db)
         email_doc = await self._resolve_email(repo, result.get("email_id"))
