@@ -54,7 +54,7 @@ export const useEmailSyncStore = create<EmailSyncState>((set, get) => ({
 
     console.log('📦 Initializing EmailSyncStore...')
 
-    // Subscribe to sync events
+    // Subscribe to sync events FIRST
     emailSyncService.subscribe((event: SyncEventType, data: any) => {
       switch (event) {
         case 'emails_fetched':

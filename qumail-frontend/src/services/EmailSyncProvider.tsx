@@ -8,7 +8,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useEmailSyncStore } from '../stores/emailSyncStore'
 import { emailSyncService, SyncedEmail } from './emailSyncService'
-import { useEmailAccountsStore } from '../stores/emailAccountsStore'
 import { useAuth } from '../context/AuthContext'
 
 interface EmailSyncContextValue {
@@ -26,17 +25,16 @@ const EmailSyncContext = createContext<EmailSyncContextValue | null>(null)
 export const EmailSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuth()
   const syncStore = useEmailSyncStore()
-  const accounts = useEmailAccountsStore(state => state.accounts)
   const [isInitialized, setIsInitialized] = useState(false)
 
-  // Initialize sync when authenticated and has accounts
+  // Initialize sync when authenticated (even with 0 accounts, to set up listeners)
   useEffect(() => {
-    if (isAuthenticated && accounts.length > 0 && !isInitialized) {
+    if (isAuthenticated && !isInitialized) {
       console.log('🔄 EmailSyncProvider: Initializing sync service...')
       syncStore.initialize()
       setIsInitialized(true)
     }
-  }, [isAuthenticated, accounts.length, isInitialized])
+  }, [isAuthenticated, isInitialized])
 
   // Cleanup on unmount
   useEffect(() => {

@@ -166,6 +166,19 @@ class EmailSyncService {
       return
     }
 
+    // Check if credentials are available BEFORE starting sync
+    const credentials = this.getAccountWithCredentials(accountId)
+    if (!credentials) {
+      console.warn(`⚠️ No credentials for ${account.email} - user needs to re-enter password`)
+      this.emit('sync_error', { 
+        accountId, 
+        email: account.email,
+        error: 'Password not found. Please re-add your password in Settings > Email Accounts.'
+      })
+      toast.error(`${account.email}: Password expired. Please re-enter in Settings.`, { duration: 5000 })
+      return
+    }
+
     // Initialize sync state
     if (!this.syncStates.has(accountId)) {
       this.syncStates.set(accountId, {

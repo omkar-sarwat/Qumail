@@ -110,6 +110,10 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
     return text.substring(0, maxLength) + '...'
   }
 
+  // Check for errors in any account
+  const hasErrors = Array.from(syncStore.accountEmails.values()).some(acc => acc.error)
+  const errorAccounts = Array.from(syncStore.accountEmails.values()).filter(acc => acc.error)
+
   // Empty state
   if (!isLoading && allEmailsSorted.length === 0 && accounts.length === 0) {
     return (
@@ -119,6 +123,32 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
         <p className="text-center text-sm">
           Add an email account in Settings to start receiving emails
         </p>
+      </div>
+    )
+  }
+
+  // Show credential error state
+  if (!isLoading && allEmailsSorted.length === 0 && accounts.length > 0 && hasErrors) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8 text-gray-400">
+        <Mail className="w-16 h-16 mb-4 opacity-50 text-yellow-500" />
+        <h3 className="text-lg font-semibold text-yellow-400 mb-2">Credentials Expired</h3>
+        <p className="text-center text-sm mb-2 max-w-md">
+          Your saved passwords have expired (browser was closed). 
+          Please go to Settings → Email Accounts to re-enter your passwords.
+        </p>
+        <div className="text-xs text-gray-500 mb-4">
+          {errorAccounts.map(acc => (
+            <div key={acc.accountId}>• {acc.accountEmail}</div>
+          ))}
+        </div>
+        <button
+          onClick={() => refresh()}
+          className="flex items-center gap-2 px-4 py-2 bg-yellow-500/20 text-yellow-400 rounded-lg hover:bg-yellow-500/30 transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Try Again
+        </button>
       </div>
     )
   }

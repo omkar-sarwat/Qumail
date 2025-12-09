@@ -14,6 +14,7 @@ import {
   AlertCircle,
   CheckCircle,
   Folder,
+  Key,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiService } from '../../services/api'
@@ -58,6 +59,51 @@ export const EmailAccountsSettings: React.FC = () => {
   const [availableFolders, setAvailableFolders] = useState<string[]>([])
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null)
+  const [reauthAccountId, setReauthAccountId] = useState<string | null>(null)
+  const [reauthPassword, setReauthPassword] = useState('')
+  const [isReauthenticating, setIsReauthenticating] = useState(false)
+
+  // Re-authenticate account with new password
+  const handleReauthenticate = async (accountId: string) => {
+    const account = accounts.find(a => a.id === accountId)
+    if (!account || !reauthPassword) {
+      toast.error('Please enter your password')
+      return
+    }
+
+    setIsReauthenticating(true)
+
+    try {
+      // Test the connection first
+      const config = {
+        host: account.settings.imap_host,
+        port: account.settings.imap_port,
+        security: account.settings.imap_security,
+        username: account.email,
+        password: reauthPassword,
+      }
+
+      if (account.settings.protocol === 'pop3') {
+        await apiService.testPop3Connection(config)
+      } else {
+        await apiService.testImapConnection(config)
+      }
+
+      // If test passes, store the password
+      storePassword(accountId, reauthPassword)
+      
+      // Start syncing
+      await emailSyncService.startSync(accountId)
+      
+      toast.success(`${account.email} re-authenticated successfully!`)
+      setReauthAccountId(null)
+      setReauthPassword('')
+    } catch (error: any) {
+      toast.error(`Authentication failed: ${error.response?.data?.detail || error.message}`)
+    } finally {
+      setIsReauthenticating(false)
+    }
+  }
 
   // Detect provider when email changes
   const handleEmailChange = async (email: string) => {
@@ -347,6 +393,61 @@ export const EmailAccountsSettings: React.FC = () => {
                         <span className="text-gray-400">Added:</span>
                         <p className="text-white">{new Date(account.createdAt).toLocaleDateString()}</p>
                       </div>
+                    </div>
+                    
+                    {/* Re-authenticate Section */}
+                    <div className="mt-4 pt-4 border-t border-gray-700/50">
+                      {reauthAccountId === account.id ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-yellow-400 text-sm mb-2">
+                            <Key className="w-4 h-4" />
+                            <span>Re-enter your password to sync emails</span>
+                          </div>
+                          <input
+                            type="password"
+                            value={reauthPassword}
+                            onChange={(e) => setReauthPassword(e.target.value)}
+                            placeholder="Enter your password"
+                            className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleReauthenticate(account.id)}
+                              disabled={isReauthenticating || !reauthPassword}
+                              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                            >
+                              {isReauthenticating ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  Verifying...
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-4 h-4" />
+                                  Authenticate
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setReauthAccountId(null)
+                                setReauthPassword('')
+                              }}
+                              className="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setReauthAccountId(account.id)}
+                          className="flex items-center gap-2 px-3 py-2 bg-yellow-500/20 text-yellow-400 rounded-lg hover:bg-yellow-500/30 transition-colors text-sm"
+                        >
+                          <Key className="w-4 h-4" />
+                          Re-enter Password (Sync Emails)
+                        </button>
+                      )}
                     </div>
                   </motion.div>
                 )}
