@@ -63,43 +63,6 @@ export const EmailAccountsSettings: React.FC = () => {
   const [reauthAccountId, setReauthAccountId] = useState<string | null>(null)
   const [reauthPassword, setReauthPassword] = useState('')
   const [isReauthenticating, setIsReauthenticating] = useState(false)
-  const [isMicrosoftOAuthConfigured, setIsMicrosoftOAuthConfigured] = useState(false)
-  const [isMicrosoftAuthLoading, setIsMicrosoftAuthLoading] = useState(false)
-
-  // Check if Microsoft OAuth is configured
-  useEffect(() => {
-    const checkMicrosoftOAuth = async () => {
-      try {
-        const response = await apiService.checkMicrosoftOAuthStatus()
-        setIsMicrosoftOAuthConfigured(response.configured)
-      } catch (error) {
-        console.error('Failed to check Microsoft OAuth status:', error)
-        setIsMicrosoftOAuthConfigured(false)
-      }
-    }
-    checkMicrosoftOAuth()
-  }, [])
-
-  // Handle Microsoft/Outlook OAuth login
-  const handleMicrosoftLogin = async () => {
-    setIsMicrosoftAuthLoading(true)
-    try {
-      const response = await apiService.getMicrosoftAuthUrl()
-      if (response.authorization_url) {
-        // Store state for CSRF validation
-        sessionStorage.setItem('microsoft_oauth_state', response.state)
-        // Redirect to Microsoft OAuth
-        window.location.href = response.authorization_url
-      } else {
-        toast.error('Failed to get Microsoft authorization URL')
-      }
-    } catch (error: any) {
-      console.error('Microsoft OAuth error:', error)
-      toast.error(error.response?.data?.detail || 'Failed to start Microsoft login')
-    } finally {
-      setIsMicrosoftAuthLoading(false)
-    }
-  }
 
   // Re-authenticate account with new password
   const handleReauthenticate = async (accountId: string) => {
@@ -380,9 +343,10 @@ export const EmailAccountsSettings: React.FC = () => {
                   : 'bg-gray-50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+              <div className="flex items-center justify-between gap-4">
+                {/* Left side - Account info */}
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center ${
                     account.id === activeAccountId 
                       ? 'bg-indigo-100 dark:bg-indigo-900/30' 
                       : 'bg-gray-200 dark:bg-gray-700'
@@ -393,23 +357,24 @@ export const EmailAccountsSettings: React.FC = () => {
                         : 'text-gray-600 dark:text-gray-400'
                     }`} />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900 dark:text-white">{account.email}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-gray-900 dark:text-white truncate">{account.email}</span>
                       {account.isVerified && (
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                      )}
-                      {account.id === activeAccountId && (
-                        <span className="text-xs px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full font-medium">
-                          Active
-                        </span>
+                        <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
                       )}
                     </div>
                     <span className="text-sm text-gray-500 dark:text-gray-400">{account.provider}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {account.id !== activeAccountId && (
+                
+                {/* Right side - Actions */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {account.id === activeAccountId ? (
+                    <span className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-medium">
+                      Active
+                    </span>
+                  ) : (
                     <button
                       onClick={() => setActiveAccount(account.id)}
                       className="px-3 py-1.5 text-sm bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-medium rounded-lg hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors"
@@ -419,7 +384,8 @@ export const EmailAccountsSettings: React.FC = () => {
                   )}
                   <button
                     onClick={() => setExpandedAccount(expandedAccount === account.id ? null : account.id)}
-                    className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
+                    className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700"
+                    title="Show details"
                   >
                     {expandedAccount === account.id ? (
                       <ChevronUp className="w-4 h-4" />
@@ -430,13 +396,15 @@ export const EmailAccountsSettings: React.FC = () => {
                   <button
                     onClick={() => {
                       if (confirm(`Remove account ${account.email}?`)) {
-                        removePassword(account.id)  // Remove stored password
+                        removePassword(account.id)
                         removeAccount(account.id)
                         toast.success('Account removed')
                       }
                     }}
-                    className="p-2 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors"
-                  >n                    <Trash2 className="w-4 h-4" />
+                    className="p-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 rounded-lg transition-colors"
+                    title="Delete account"
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -560,40 +528,6 @@ export const EmailAccountsSettings: React.FC = () => {
               </div>
 
               <div className="p-6 space-y-4">
-                {/* OAuth Login Options */}
-                {isMicrosoftOAuthConfigured && (
-                  <div className="space-y-3">
-                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Quick Sign In (Recommended)
-                    </div>
-                    <button
-                      onClick={handleMicrosoftLogin}
-                      disabled={isMicrosoftAuthLoading}
-                      className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#2F2F2F] hover:bg-[#444444] text-white rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {isMicrosoftAuthLoading ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none">
-                          <path d="M0 0h10v10H0V0z" fill="#F25022"/>
-                          <path d="M11 0h10v10H11V0z" fill="#7FBA00"/>
-                          <path d="M0 11h10v10H0V11z" fill="#00A4EF"/>
-                          <path d="M11 11h10v10H11V11z" fill="#FFB900"/>
-                        </svg>
-                      )}
-                      <span className="font-medium">Continue with Microsoft (Outlook)</span>
-                    </button>
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
-                      </div>
-                      <div className="relative flex justify-center text-sm">
-                        <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">or add manually</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* Email */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
