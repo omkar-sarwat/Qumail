@@ -13,7 +13,6 @@ import textwrap
 import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Set
-from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from email.utils import parseaddr
 
@@ -55,7 +54,7 @@ class CompleteEmailService:
         cc: Optional[str] = None,
         bcc: Optional[str] = None,
         attachments: Optional[list] = None,
-        db: AsyncIOMotorDatabase = None,
+        db: Any = None,
         gmail_credentials: Dict = None
     ) -> Dict[str, Any]:
         """
@@ -781,7 +780,7 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
     async def receive_and_decrypt_email(
         self,
         email_id: str,  # UUID string
-        db: AsyncIOMotorDatabase
+        db: Any
     ) -> Dict[str, Any]:
         """
         Receive and decrypt email - ONLY in QuMail app
@@ -1079,7 +1078,7 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
         self,
         user_email: str,
         folder: str,
-        db: AsyncIOMotorDatabase
+        db: Any
     ) -> list:
         """
         Get list of encrypted emails (metadata only, no decryption)
@@ -1088,10 +1087,8 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
             # Determine direction based on folder
             if folder == 'sent':
                 direction = EmailDirection.SENT
-                email_filter = Email.sender_email == user_email
             else:  # inbox
                 direction = EmailDirection.RECEIVED
-                email_filter = Email.receiver_email == user_email
             
             # Query emails
             email_repo = EmailRepository(db)
@@ -1144,7 +1141,7 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
         gmail_msg: Dict[str, Any],
         user_email: str,
         user_id: str,
-        db: AsyncIOMotorDatabase
+        db: Any
     ) -> Optional[EmailDocument]:
         """Persist a Gmail message (plain or encrypted) into the local store if missing."""
         try:
@@ -1464,7 +1461,7 @@ Protected by Quantum Key Distribution | End-to-End Encrypted
         self,
         user_email: str,
         gmail_credentials: Dict,
-        db: AsyncIOMotorDatabase
+        db: Any
     ) -> Dict[str, Any]:
         """
         Sync encrypted emails from Gmail
