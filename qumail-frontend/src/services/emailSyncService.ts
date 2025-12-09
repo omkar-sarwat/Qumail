@@ -76,10 +76,10 @@ class EmailSyncService {
     const store = useEmailAccountsStore.getState()
     const { accounts } = store
     
-    // Start sync for all existing accounts
+    // Start sync for all existing accounts (silent mode - no error toasts on startup)
     accounts.forEach(account => {
       if (account.isVerified) {
-        this.startSync(account.id)
+        this.startSync(account.id, true) // silent = true for auto-init
       }
     })
 
@@ -157,7 +157,7 @@ class EmailSyncService {
   /**
    * Start syncing for an account
    */
-  async startSync(accountId: string) {
+  async startSync(accountId: string, silent: boolean = false) {
     const store = useEmailAccountsStore.getState()
     const account = store.accounts.find(a => a.id === accountId)
     
@@ -175,7 +175,10 @@ class EmailSyncService {
         email: account.email,
         error: 'Password not found. Please re-add your password in Settings > Email Accounts.'
       })
-      toast.error(`${account.email}: Password expired. Please re-enter in Settings.`, { duration: 5000 })
+      // Only show toast if not silent (e.g., on manual refresh, not auto-init)
+      if (!silent) {
+        toast.error(`${account.email}: Password expired. Please re-enter in Settings.`, { duration: 5000 })
+      }
       return
     }
 

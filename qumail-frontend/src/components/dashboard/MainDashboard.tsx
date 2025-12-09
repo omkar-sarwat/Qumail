@@ -11,8 +11,8 @@ import QuantumDashboard from './QuantumDashboard'
 import { SettingsPanel } from './SettingsPanel'
 import { NewComposeEmailModal, QuantumSendSummary } from '../compose/NewComposeEmailModal'
 import { KeyVaultLogin, KeyManagerDashboard } from '../keymanager'
-import { ProviderEmailInbox } from './ProviderEmailInbox'
 import { SyncedEmail } from '../../services/emailSyncService'
+import { useEmailSyncStore } from '../../stores/emailSyncStore'
 
 // Auto-refresh interval in milliseconds (30 seconds)
 const AUTO_REFRESH_INTERVAL = 30000
@@ -110,6 +110,10 @@ export const MainDashboard: React.FC = () => {
   const [replyToEmail, setReplyToEmail] = useState<DashboardEmail | null>(null)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [selectedSecurityLevels, setSelectedSecurityLevels] = useState<Set<number>>(new Set([1, 2, 3, 4]))
+
+  // Get provider emails from sync store
+  const syncStore = useEmailSyncStore()
+  const providerEmails = syncStore.getAllEmails()
 
   // Mark component as ready after first paint to prevent flickering
   useLayoutEffect(() => {
@@ -700,8 +704,50 @@ export const MainDashboard: React.FC = () => {
     [emails]
   )
 
+  // Convert provider emails to DashboardEmail format for unified inbox
+  const convertProviderEmail = useCallback((email: SyncedEmail): DashboardEmail => {
+    return {
+      id: `provider_${email.id}`,
+      email_id: email.id,
+      timestamp: email.timestamp,
+      subject: email.subject,
+      snippet: email.body_text?.slice(0, 140) || '',
+      body: email.body_text,
+      bodyHtml: email.body_html || undefined,
+      bodyText: email.body_text,
+      sender: email.from_name || email.from_address,
+      sender_name: email.from_name,
+      sender_email: email.from_address,
+      senderName: email.from_name,
+      senderEmail: email.from_address,
+      to: email.to_address,
+      recipient: email.to_address,
+      isRead: email.is_read,
+      is_read: email.is_read,
+      read: email.is_read,
+      securityLevel: 0,
+      encrypted: false,
+      requires_decryption: false,
+      isDecrypted: true,
+      tags: ['PROVIDER'],
+      source: 'provider',
+    }
+  }, [])
+
   const filteredEmails = useMemo(() => {
-    let filtered = emails
+    // Start with Gmail/QuMail emails
+    let filtered = [...emails]
+
+    // When viewing inbox, merge in provider emails
+    if (activeFolder === 'inbox') {
+      const providerDashboardEmails = providerEmails.map(convertProviderEmail)
+      filtered = [...filtered, ...providerDashboardEmails]
+      
+      // Sort all emails by timestamp descending
+      filtered.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      )
+    }
 
     // Filter by security level (1-4 are quantum encrypted levels)
     // When all 4 levels are selected, show all emails including unencrypted
@@ -734,7 +780,7 @@ export const MainDashboard: React.FC = () => {
     }
 
     return filtered
-  }, [emails, searchQuery, selectedSecurityLevels])
+  }, [emails, searchQuery, selectedSecurityLevels, activeFolder, providerEmails, convertProviderEmail])
 
   useEffect(() => {
     // Check for token in localStorage (legacy) OR in Zustand store
@@ -881,63 +927,29 @@ export const MainDashboard: React.FC = () => {
         </div>
 
         {currentView === 'email' ? (
-          activeFolder === 'provider_inbox' ? (
-            // Provider Email Inbox - shows emails from all configured IMAP/POP3 accounts
-            <div className="flex-1 min-w-0 h-full rounded-2xl overflow-hidden bg-gray-900 border border-gray-700">
-              <ProviderEmailInbox 
-                onEmailSelect={(email: SyncedEmail, accountId: string) => {
-                  // Convert synced email to dashboard format for viewing
-                  const dashboardEmail: DashboardEmail = {
-                    id: email.id,
-                    email_id: email.id,
-                    timestamp: email.timestamp,
-                    subject: email.subject,
-                    body: email.body_text,
-                    bodyHtml: email.body_html || undefined,
-                    bodyText: email.body_text,
-                    sender: email.from_name || email.from_address,
-                    sender_name: email.from_name,
-                    sender_email: email.from_address,
-                    senderName: email.from_name,
-                    senderEmail: email.from_address,
-                    to: email.to_address,
-                    recipient: email.to_address,
-                    isRead: email.is_read,
-                    is_read: email.is_read,
-                    read: email.is_read,
-                    securityLevel: 0,
-                    encrypted: false,
-                    requires_decryption: false,
-                  }
-                  setSelectedEmail(dashboardEmail)
-                }}
+          <>
+            <div className="w-[28rem] flex-shrink-0 h-full">
+              <EmailList
+                emails={filteredEmails as any}
+                selectedEmail={selectedEmail as any}
+                onEmailSelect={(email) => handleEmailSelect(email as DashboardEmail)}
+                onToggleStar={handleToggleStar}
+                isLoading={isLoadingEmails}
+                activeFolder={activeFolder}
               />
             </div>
-          ) : (
-            <>
-              <div className="w-[28rem] flex-shrink-0 h-full">
-                <EmailList
-                  emails={filteredEmails as any}
-                  selectedEmail={selectedEmail as any}
-                  onEmailSelect={(email) => handleEmailSelect(email as DashboardEmail)}
-                  onToggleStar={handleToggleStar}
-                  isLoading={isLoadingEmails}
-                  activeFolder={activeFolder}
-                />
-              </div>
 
-              <div className="flex-1 min-w-0 h-full">
-                <EmailViewer
-                  email={selectedEmail as any}
-                  onReply={handleReply}
-                  onReplyAll={handleReplyAll}
-                  onForward={handleForward}
-                  onDelete={handleDeleteEmail}
-                  onEmailDecrypted={handleEmailDecrypted}
-                />
-              </div>
-            </>
-          )
+            <div className="flex-1 min-w-0 h-full">
+              <EmailViewer
+                email={selectedEmail as any}
+                onReply={handleReply}
+                onReplyAll={handleReplyAll}
+                onForward={handleForward}
+                onDelete={handleDeleteEmail}
+                onEmailDecrypted={handleEmailDecrypted}
+              />
+            </div>
+          </>
         ) : currentView === 'keymanager' ? (
           <div className="flex-1 overflow-hidden rounded-2xl bg-white border border-gray-200 shadow-sm flex">
             {keyManagerAuth.isLoggedIn ? (
