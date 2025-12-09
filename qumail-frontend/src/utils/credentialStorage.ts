@@ -3,9 +3,11 @@
  * 
  * Uses:
  * - Browser: Session storage (cleared when browser closes)
+ * - Local storage (to survive browser restarts)
  * - In-memory cache for quick access
  * 
- * Passwords are NOT persisted to localStorage for security
+ * Note: Persisting to localStorage keeps passwords across browser restarts. This
+ * improves UX for repeated logins but is less secure than memory/session only.
  */
 
 // In-memory cache for credentials (cleared on page reload)
@@ -23,6 +25,13 @@ export function storePassword(accountId: string, password: string): void {
     sessionStorage.setItem(`qumail_pwd_${accountId}`, btoa(password))
   } catch (err) {
     console.warn('Failed to store in session storage:', err)
+  }
+
+  // Persist in local storage so users do not need to re-authenticate on reload
+  try {
+    localStorage.setItem(`qumail_pwd_${accountId}`, btoa(password))
+  } catch (err) {
+    console.warn('Failed to store in local storage:', err)
   }
 }
 
@@ -46,6 +55,20 @@ export function getPassword(accountId: string): string | null {
   } catch (err) {
     console.warn('Failed to retrieve from session storage:', err)
   }
+
+  // Check local storage as long-lived fallback
+  try {
+    const stored = localStorage.getItem(`qumail_pwd_${accountId}`)
+    if (stored) {
+      const password = atob(stored)
+      credentialCache.set(accountId, password)
+      // Keep session storage in sync for current tab lifecycle
+      sessionStorage.setItem(`qumail_pwd_${accountId}`, stored)
+      return password
+    }
+  } catch (err) {
+    console.warn('Failed to retrieve from local storage:', err)
+  }
   
   return null
 }
@@ -61,6 +84,12 @@ export function removePassword(accountId: string): void {
   } catch (err) {
     console.warn('Failed to remove from session storage:', err)
   }
+
+  try {
+    localStorage.removeItem(`qumail_pwd_${accountId}`)
+  } catch (err) {
+    console.warn('Failed to remove from local storage:', err)
+  }
 }
 
 /**
@@ -68,7 +97,8 @@ export function removePassword(accountId: string): void {
  */
 export function hasPassword(accountId: string): boolean {
   return credentialCache.has(accountId) || 
-    sessionStorage.getItem(`qumail_pwd_${accountId}`) !== null
+    sessionStorage.getItem(`qumail_pwd_${accountId}`) !== null ||
+    localStorage.getItem(`qumail_pwd_${accountId}`) !== null
 }
 
 /**
@@ -89,5 +119,19 @@ export function clearAllPasswords(): void {
     keysToRemove.forEach(key => sessionStorage.removeItem(key))
   } catch (err) {
     console.warn('Failed to clear session storage:', err)
+  }
+
+  // Clear local storage items with our prefix
+  try {
+    const keysToRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('qumail_pwd_')) {
+        keysToRemove.push(key)
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key))
+  } catch (err) {
+    console.warn('Failed to clear local storage:', err)
   }
 }
