@@ -88,7 +88,8 @@ class CompleteEmailService:
                         'recipient_email': recipient_email
                     }
                 
-                logger.info(f"✓ Recipient {recipient_email} verified as QuMail user (ID: {recipient_user.user_id})")
+                # UserDocument stores Mongo `_id` as `id`, so use that instead of a non-existent `user_id` attribute
+                logger.info(f"✓ Recipient {recipient_email} verified as QuMail user (ID: {recipient_user.id})")
             else:
                 logger.warning("No database connection - skipping QuMail user verification")
             # ================================================
