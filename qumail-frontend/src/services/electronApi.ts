@@ -112,7 +112,7 @@ export const makeBackendRequest = async (
   }
   
   // Fallback to direct HTTP (for web or dev mode)
-  const backendUrl = import.meta.env.VITE_API_URL || 'https://qumail-backend-gwec.onrender.com'
+  const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
   const response = await fetch(`${backendUrl}${url}`, {
     method,
     headers: {

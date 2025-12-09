@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Configure base API URL
-const baseURL = import.meta.env.VITE_API_URL || 'https://qumail-backend-gwec.onrender.com';
+// Configure base API URL - use localhost backend
+const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Types
 export interface QuantumKey {

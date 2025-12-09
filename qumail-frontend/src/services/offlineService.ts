@@ -107,7 +107,7 @@ class OfflineService {
   private async checkNetworkStatus(): Promise<void> {
     try {
       // Try to reach the backend
-      const response = await fetch('https://qumail-backend-gwec.onrender.com/health', {
+      const response = await fetch('http://localhost:8000/health', {
         method: 'GET',
         cache: 'no-store',
         signal: AbortSignal.timeout(5000)
@@ -476,7 +476,7 @@ class OfflineService {
     
     switch (item.operation) {
       case 'mark_read':
-        await fetch(`https://qumail-backend-gwec.onrender.com/api/v1/emails/${item.email_id}/read`, {
+        await fetch(`http://localhost:8000/api/v1/emails/${item.email_id}/read`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -487,7 +487,7 @@ class OfflineService {
         break
         
       case 'mark_starred':
-        await fetch(`https://qumail-backend-gwec.onrender.com/api/v1/emails/${item.email_id}/star`, {
+        await fetch(`http://localhost:8000/api/v1/emails/${item.email_id}/star`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
@@ -498,7 +498,7 @@ class OfflineService {
         break
         
       case 'delete':
-        await fetch(`https://qumail-backend-gwec.onrender.com/api/v1/emails/${item.email_id}`, {
+        await fetch(`http://localhost:8000/api/v1/emails/${item.email_id}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('authToken')}`

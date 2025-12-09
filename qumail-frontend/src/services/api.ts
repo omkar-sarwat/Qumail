@@ -88,7 +88,7 @@ class ApiService {
   private token: string | null = null
 
   constructor() {
-    this.baseURL = import.meta.env.VITE_API_URL || 'https://qumail-backend-gwec.onrender.com'
+    this.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
     
     if (import.meta.env.DEV) {
       console.log('API Service initialized with baseURL:', this.baseURL)
