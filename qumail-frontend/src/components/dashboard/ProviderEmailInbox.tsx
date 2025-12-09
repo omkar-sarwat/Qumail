@@ -5,7 +5,7 @@
  * Shows emails with account labels, unread badges, and real-time sync status.
  */
 
-import React, { useEffect, useMemo } from 'react'
+import React, { useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Mail,
@@ -15,9 +15,9 @@ import {
   Inbox,
   Loader2,
 } from 'lucide-react'
-import { useEmailSyncStore, useSyncedEmails } from '../../stores/emailSyncStore'
+import { useEmailSyncStore, SyncedEmail, SyncedAccountEmails } from '../../stores/emailSyncStore'
 import { useEmailAccountsStore } from '../../stores/emailAccountsStore'
-import { SyncedEmail } from '../../services/emailSyncService'
+import { emailSyncService } from '../../services/emailSyncService'
 import { getAvatarColor } from '../../utils/avatarColors'
 
 interface ProviderEmailInboxProps {
@@ -31,50 +31,87 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
 }) => {
   const syncStore = useEmailSyncStore()
   const accounts = useEmailAccountsStore(state => state.accounts)
-  const { emails, isLoading, unreadCount, refresh } = useSyncedEmails(accountId)
 
-  // Initialize sync store if not done yet
-  useEffect(() => {
-    if (!syncStore.isInitialized && accounts.length > 0) {
-      syncStore.initialize()
+  // Get emails based on filter
+  const emails = useMemo(() => {
+    if (accountId) {
+      return syncStore.getAccountEmails(accountId)
     }
-  }, [accounts.length, syncStore.isInitialized])
+    return syncStore.getAllEmails()
+  }, [accountId, syncStore.accountEmails])
 
-  // Group emails by account
+  // Get unread count
+  const unreadCount = useMemo(() => {
+    if (accountId) {
+      return syncStore.getUnreadCount(accountId)
+    }
+    return syncStore.totalUnreadCount
+  }, [accountId, syncStore.accountEmails, syncStore.totalUnreadCount])
+
+  // Check if any account is syncing
+  const isSyncing = syncStore.isSyncing
+
+  // Refresh handler
+  const handleRefresh = useCallback(async () => {
+    if (accountId) {
+      syncStore.setSyncStatus(accountId, 'syncing')
+      try {
+        await emailSyncService.startSync(accountId)
+        syncStore.setSyncStatus(accountId, 'idle')
+      } catch (error) {
+        console.error('Refresh error:', error)
+        syncStore.setSyncStatus(accountId, 'error', String(error))
+      }
+    } else {
+      // Refresh all accounts
+      const accountIds = Object.keys(syncStore.accountEmails)
+      for (const id of accountIds) {
+        syncStore.setSyncStatus(id, 'syncing')
+        try {
+          await emailSyncService.startSync(id)
+          syncStore.setSyncStatus(id, 'idle')
+        } catch (error) {
+          console.error(`Error syncing ${id}:`, error)
+          syncStore.setSyncStatus(id, 'error', String(error))
+        }
+      }
+    }
+  }, [accountId, syncStore])
+
+  // Group emails by account for display
   const groupedEmails = useMemo(() => {
     if (accountId) {
       const account = accounts.find(a => a.id === accountId)
+      const accountData = syncStore.accountEmails[accountId]
       return [{
         accountId,
-        accountEmail: account?.email || '',
-        provider: account?.provider || '',
-        emails,
+        accountEmail: accountData?.email || account?.email || '',
+        provider: accountData?.provider || account?.provider || '',
+        emails: emails,
       }]
     }
 
-    const groups: Map<string, { accountEmail: string; provider: string; emails: SyncedEmail[] }> = new Map()
+    const groups: Array<{ accountId: string; accountEmail: string; provider: string; emails: SyncedEmail[] }> = []
     
-    // Get all emails from sync store
-    syncStore.accountEmails.forEach((data, id) => {
-      groups.set(id, {
-        accountEmail: data.accountEmail,
+    // Get all emails from sync store (Record-based)
+    Object.entries(syncStore.accountEmails).forEach(([id, data]: [string, SyncedAccountEmails]) => {
+      groups.push({
+        accountId: id,
+        accountEmail: data.email,
         provider: data.provider,
         emails: data.emails,
       })
     })
 
-    return Array.from(groups.entries()).map(([id, data]) => ({
-      accountId: id,
-      ...data,
-    }))
+    return groups
   }, [accountId, accounts, emails, syncStore.accountEmails])
 
-  // Sort all emails by timestamp
+  // Sort all emails by date
   const allEmailsSorted = useMemo(() => {
     const all: Array<{ email: SyncedEmail; accountId: string; accountEmail: string }> = []
     
     groupedEmails.forEach(group => {
-      group.emails.forEach(email => {
+      group.emails.forEach((email: SyncedEmail) => {
         all.push({
           email,
           accountId: group.accountId,
@@ -84,7 +121,7 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
     })
 
     return all.sort((a, b) => 
-      new Date(b.email.timestamp).getTime() - new Date(a.email.timestamp).getTime()
+      new Date(b.email.date).getTime() - new Date(a.email.date).getTime()
     )
   }, [groupedEmails])
 
@@ -111,11 +148,14 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
   }
 
   // Check for errors in any account
-  const hasErrors = Array.from(syncStore.accountEmails.values()).some(acc => acc.error)
-  const errorAccounts = Array.from(syncStore.accountEmails.values()).filter(acc => acc.error)
+  const hasErrors = Object.values(syncStore.accountEmails).some((acc: SyncedAccountEmails) => acc.syncStatus === 'error')
+  const errorAccounts = Object.values(syncStore.accountEmails).filter((acc: SyncedAccountEmails) => acc.syncStatus === 'error')
+
+  // Count syncing accounts
+  const activeSyncCount = Object.values(syncStore.accountEmails).filter((acc: SyncedAccountEmails) => acc.syncStatus === 'syncing').length
 
   // Empty state
-  if (!isLoading && allEmailsSorted.length === 0 && accounts.length === 0) {
+  if (!isSyncing && allEmailsSorted.length === 0 && accounts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-gray-400">
         <Inbox className="w-16 h-16 mb-4 opacity-50" />
@@ -128,7 +168,7 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
   }
 
   // Show credential error state
-  if (!isLoading && allEmailsSorted.length === 0 && accounts.length > 0 && hasErrors) {
+  if (!isSyncing && allEmailsSorted.length === 0 && accounts.length > 0 && hasErrors) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-gray-400">
         <Mail className="w-16 h-16 mb-4 opacity-50 text-yellow-500" />
@@ -138,12 +178,12 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
           Please go to Settings → Email Accounts to re-enter your passwords.
         </p>
         <div className="text-xs text-gray-500 mb-4">
-          {errorAccounts.map(acc => (
-            <div key={acc.accountId}>• {acc.accountEmail}</div>
+          {errorAccounts.map((acc: SyncedAccountEmails) => (
+            <div key={acc.accountId}>• {acc.email}</div>
           ))}
         </div>
         <button
-          onClick={() => refresh()}
+          onClick={handleRefresh}
           className="flex items-center gap-2 px-4 py-2 bg-yellow-500/20 text-yellow-400 rounded-lg hover:bg-yellow-500/30 transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
@@ -153,7 +193,7 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
     )
   }
 
-  if (!isLoading && allEmailsSorted.length === 0 && accounts.length > 0) {
+  if (!isSyncing && allEmailsSorted.length === 0 && accounts.length > 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-gray-400">
         <Mail className="w-16 h-16 mb-4 opacity-50" />
@@ -162,7 +202,7 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
           Emails will appear here as they sync from your accounts
         </p>
         <button
-          onClick={() => refresh()}
+          onClick={handleRefresh}
           className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
@@ -185,43 +225,42 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
           )}
         </div>
         <button
-          onClick={() => refresh()}
-          disabled={isLoading}
+          onClick={handleRefresh}
+          disabled={isSyncing}
           className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
       {/* Sync Status Bar */}
-      {syncStore.activeSyncCount > 0 && (
+      {activeSyncCount > 0 && (
         <div className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/20 text-blue-400 text-sm">
           <Loader2 className="w-4 h-4 animate-spin" />
-          <span>Syncing {syncStore.activeSyncCount} account{syncStore.activeSyncCount > 1 ? 's' : ''}...</span>
+          <span>Syncing {activeSyncCount} account{activeSyncCount > 1 ? 's' : ''}...</span>
         </div>
       )}
 
       {/* Email List */}
       <div className="flex-1 overflow-y-auto">
         <AnimatePresence>
-          {allEmailsSorted.map(({ email, accountId, accountEmail }, index) => {
-            const avatarColor = getAvatarColor(email.from_address || email.from_name)
-            const initials = (email.from_name || email.from_address.split('@')[0])
-              .slice(0, 2)
-              .toUpperCase()
+          {allEmailsSorted.map(({ email, accountId: emailAccountId, accountEmail }, index) => {
+            const avatarColor = getAvatarColor(email.from || email.fromName || '')
+            const displayName = email.fromName || email.from?.split('@')[0] || 'Unknown'
+            const initials = displayName.slice(0, 2).toUpperCase()
 
             return (
               <motion.div
-                key={`${accountId}-${email.id}`}
+                key={`${emailAccountId}-${email.id}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ delay: index * 0.02 }}
-                onClick={() => onEmailSelect?.(email, accountId)}
+                onClick={() => onEmailSelect?.(email, emailAccountId)}
                 className={`
                   flex items-start gap-3 px-4 py-3 border-b border-gray-700/30 cursor-pointer
                   hover:bg-gray-800/50 transition-colors
-                  ${!email.is_read ? 'bg-gray-800/30' : ''}
+                  ${!email.isRead ? 'bg-gray-800/30' : ''}
                 `}
               >
                 {/* Avatar */}
@@ -237,30 +276,30 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
                   {/* From & Time Row */}
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className={`font-medium truncate ${!email.is_read ? 'text-white' : 'text-gray-300'}`}>
-                        {email.from_name || email.from_address.split('@')[0]}
+                      <span className={`font-medium truncate ${!email.isRead ? 'text-white' : 'text-gray-300'}`}>
+                        {displayName}
                       </span>
-                      {!email.is_read && (
+                      {!email.isRead && (
                         <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
                       )}
                     </div>
                     <span className="text-xs text-gray-500 flex-shrink-0">
-                      {formatTimestamp(email.timestamp)}
+                      {formatTimestamp(email.date)}
                     </span>
                   </div>
 
                   {/* Subject */}
-                  <p className={`text-sm truncate mb-1 ${!email.is_read ? 'text-gray-200' : 'text-gray-400'}`}>
+                  <p className={`text-sm truncate mb-1 ${!email.isRead ? 'text-gray-200' : 'text-gray-400'}`}>
                     {email.subject || '(No subject)'}
                   </p>
 
                   {/* Preview & Account Badge */}
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs text-gray-500 truncate flex-1">
-                      {truncate(email.body_text || '', 80)}
+                      {truncate(email.snippet || email.body || '', 80)}
                     </p>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      {email.has_attachments && (
+                      {email.hasAttachments && (
                         <Paperclip className="w-3 h-3 text-gray-500" />
                       )}
                       <span className="text-xs px-2 py-0.5 bg-gray-700/50 text-gray-400 rounded-full">
@@ -278,7 +317,7 @@ export const ProviderEmailInbox: React.FC<ProviderEmailInboxProps> = ({
         </AnimatePresence>
 
         {/* Loading State */}
-        {isLoading && allEmailsSorted.length === 0 && (
+        {isSyncing && allEmailsSorted.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12">
             <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-4" />
             <p className="text-gray-400">Loading emails...</p>

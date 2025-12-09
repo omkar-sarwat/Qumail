@@ -13,6 +13,7 @@
 
 import { apiService } from './api'
 import { useEmailAccountsStore } from '../stores/emailAccountsStore'
+import { useEmailSyncStore, SyncedEmail as StoreSyncedEmail } from '../stores/emailSyncStore'
 import { getPassword } from '../utils/credentialStorage'
 import toast from 'react-hot-toast'
 
@@ -136,6 +137,20 @@ class EmailSyncService {
       return null
     }
     
+    // For Gmail OAuth accounts, no password needed (use Google API)
+    if (account.authType === 'oauth' || account.settings.protocol === 'oauth') {
+      console.log(`✅ OAuth account ${account.email} - using API`)
+      return {
+        email: account.email,
+        password: '', // Not used for OAuth
+        provider: account.provider,
+        settings: account.settings,
+        foldersToSync: account.foldersToSync,
+        authType: account.authType,
+        oauthProvider: account.oauthProvider,
+      }
+    }
+    
     console.log(`🔑 Looking up password for account ${account.email} (ID: ${account.id})`)
     const password = getPassword(account.id)
     if (!password) {
@@ -151,6 +166,8 @@ class EmailSyncService {
       provider: account.provider,
       settings: account.settings,
       foldersToSync: account.foldersToSync,
+      authType: account.authType || 'password',
+      oauthProvider: account.oauthProvider,
     }
   }
 
@@ -248,16 +265,21 @@ class EmailSyncService {
     console.log(`📥 Fetching initial ${SYNC_CONFIG.initialFetchCount} emails for ${account.email}`)
     console.log(`   Provider: ${account.provider}`)
     console.log(`   Protocol: ${account.settings.protocol}`)
-    console.log(`   Host: ${account.settings.imap_host}:${account.settings.imap_port}`)
+    console.log(`   Auth Type: ${account.authType || 'password'}`)
     
     try {
+      let emails: SyncedEmail[] = []
+      
+      // Use IMAP/POP3 for email fetching
+      console.log(`   Host: ${account.settings.imap_host}:${account.settings.imap_port}`)
+      
       const response = await apiService.fetchProviderEmails(account, {
         folder: 'INBOX',
         maxResults: SYNC_CONFIG.initialFetchCount,
         offset: 0,
       })
-
-      const emails = response.emails || []
+      
+      emails = response.emails || []
       state.emails = emails
       state.emailCount = emails.length
       state.lastSyncTime = Date.now()
@@ -267,6 +289,34 @@ class EmailSyncService {
       }
 
       console.log(`✅ Fetched ${emails.length} initial emails for ${account.email}`)
+      
+      // Push emails to zustand store for UI display and persistence
+      const syncStore = useEmailSyncStore.getState()
+      
+      // Initialize account in store if not exists
+      syncStore.initializeAccount(accountId, account.email, account.provider)
+      
+      // Convert emails to store format and add to store
+      const storeEmails: StoreSyncedEmail[] = emails.map((e: SyncedEmail) => ({
+        id: e.id,
+        messageId: e.message_id,
+        subject: e.subject,
+        from: e.from_address,
+        fromName: e.from_name,
+        to: e.to_address,
+        date: e.timestamp,
+        body: e.body_text,
+        bodyHtml: e.body_html || undefined,
+        snippet: e.body_text?.substring(0, 100),
+        isRead: e.is_read,
+        hasAttachments: e.has_attachments,
+        folder: e.folder,
+        provider: account.provider,
+        accountId: accountId,
+      }))
+      
+      syncStore.setEmails(accountId, storeEmails)
+      console.log(`📦 Pushed ${storeEmails.length} emails to sync store for ${account.email}`)
       
       // Show toast notification
       toast.success(`Synced ${emails.length} emails from ${account.email}`, {
@@ -348,14 +398,16 @@ class EmailSyncService {
     console.log(`🔄 Polling for new emails: ${account.email}`)
 
     try {
-      // Fetch recent emails
+      let newEmails: SyncedEmail[] = []
+      
+      // Use IMAP/POP3 for email fetching
       const response = await apiService.fetchProviderEmails(account, {
         folder: 'INBOX',
         maxResults: SYNC_CONFIG.maxEmailsPerPoll,
         offset: 0,
       })
-
-      const newEmails = response.emails || []
+      
+      newEmails = response.emails || []
       
       if (newEmails.length === 0) {
         console.log(`📭 No new emails for ${account.email}`)
@@ -373,6 +425,29 @@ class EmailSyncService {
         state.emails = [...trulyNewEmails, ...state.emails]
         state.emailCount = state.emails.length
         state.lastMessageId = trulyNewEmails[0].message_id
+        
+        // Push new emails to zustand store for UI display
+        const syncStore = useEmailSyncStore.getState()
+        const newStoreEmails: StoreSyncedEmail[] = trulyNewEmails.map((e: SyncedEmail) => ({
+          id: e.id,
+          messageId: e.message_id,
+          subject: e.subject,
+          from: e.from_address,
+          fromName: e.from_name,
+          to: e.to_address,
+          date: e.timestamp,
+          body: e.body_text,
+          bodyHtml: e.body_html || undefined,
+          snippet: e.body_text?.substring(0, 100),
+          isRead: e.is_read,
+          hasAttachments: e.has_attachments,
+          folder: e.folder,
+          provider: account.provider,
+          accountId: accountId,
+        }))
+        
+        syncStore.addEmails(accountId, newStoreEmails)
+        console.log(`📦 Added ${newStoreEmails.length} new emails to sync store for ${account.email}`)
         
         // Show notification
         if (trulyNewEmails.length === 1) {

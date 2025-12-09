@@ -1,291 +1,404 @@
 /**
- * Email Sync Store
- * 
- * Zustand store for managing email sync state across all accounts.
- * Works in conjunction with emailSyncService to provide reactive state.
+ * Email Sync Store - Manages synced emails from external providers
+ * Uses Record instead of Map for JSON serialization with localStorage persistence
  */
 
 import { create } from 'zustand'
-import { emailSyncService, SyncedEmail, SyncEventType } from '../services/emailSyncService'
+import { persist, createJSONStorage } from 'zustand/middleware'
 
-interface SyncedAccountEmails {
+export interface SyncedEmail {
+  id: string
+  messageId: string
+  subject: string
+  from: string
+  fromName?: string
+  to: string
+  date: string
+  body: string
+  bodyHtml?: string
+  snippet?: string
+  isRead: boolean
+  hasAttachments: boolean
+  labels?: string[]
+  folder?: string
+  provider: string
   accountId: string
-  accountEmail: string
+}
+
+export interface SyncedAccountEmails {
+  accountId: string
+  email: string
   provider: string
   emails: SyncedEmail[]
-  lastSync: number
-  isLoading: boolean
-  error: string | null
+  lastSyncTime: string | null
+  syncStatus: 'idle' | 'syncing' | 'error'
+  errorMessage?: string
+  unreadCount: number
 }
 
-interface EmailSyncState {
-  // Per-account email data
-  accountEmails: Map<string, SyncedAccountEmails>
-  
-  // Global state
-  isInitialized: boolean
+export interface EmailSyncState {
+  // Use Record instead of Map for JSON serialization
+  accountEmails: Record<string, SyncedAccountEmails>
   totalUnreadCount: number
-  activeSyncCount: number
-  
-  // Selected email for viewing
-  selectedEmail: SyncedEmail | null
-  selectedAccountId: string | null
+  isSyncing: boolean
   
   // Actions
-  initialize: () => void
+  initializeAccount: (accountId: string, email: string, provider: string) => void
+  setEmails: (accountId: string, emails: SyncedEmail[]) => void
+  addEmails: (accountId: string, emails: SyncedEmail[]) => void
+  markAsRead: (accountId: string, emailId: string) => void
+  markAsUnread: (accountId: string, emailId: string) => void
+  deleteEmail: (accountId: string, emailId: string) => void
+  setSyncStatus: (accountId: string, status: 'idle' | 'syncing' | 'error', errorMessage?: string) => void
+  updateLastSyncTime: (accountId: string) => void
+  removeAccount: (accountId: string) => void
+  clearAllEmails: () => void
   getAccountEmails: (accountId: string) => SyncedEmail[]
   getAllEmails: () => SyncedEmail[]
-  getUnreadCount: (accountId?: string) => number
-  refreshAccount: (accountId: string) => Promise<void>
-  selectEmail: (email: SyncedEmail | null, accountId: string | null) => void
-  markAsRead: (accountId: string, emailId: string) => void
+  getUnreadCount: (accountId: string) => number
+  getTotalUnreadCount: () => number
 }
 
-export const useEmailSyncStore = create<EmailSyncState>((set, get) => ({
-  accountEmails: new Map(),
-  isInitialized: false,
-  totalUnreadCount: 0,
-  activeSyncCount: 0,
-  selectedEmail: null,
-  selectedAccountId: null,
+export const useEmailSyncStore = create<EmailSyncState>()(
+  persist(
+    (set, get) => ({
+      accountEmails: {},
+      totalUnreadCount: 0,
+      isSyncing: false,
 
-  initialize: () => {
-    if (get().isInitialized) return
-
-    console.log('📦 Initializing EmailSyncStore...')
-
-    // Subscribe to sync events FIRST
-    emailSyncService.subscribe((event: SyncEventType, data: any) => {
-      switch (event) {
-        case 'emails_fetched':
-        case 'new_emails': {
-          const { accountId, email: accountEmail, emails } = data
+      initializeAccount: (accountId: string, email: string, provider: string) => {
+        console.log(`[EmailSyncStore] Initializing account: ${accountId} (${email}) - ${provider}`)
+        set((state) => {
+          // Don't reinitialize if already exists
+          if (state.accountEmails[accountId]) {
+            console.log(`[EmailSyncStore] Account ${accountId} already initialized`)
+            return state
+          }
           
-          set(state => {
-            const newMap = new Map(state.accountEmails)
-            const existing = newMap.get(accountId)
-            
-            if (event === 'new_emails' && existing) {
-              // Prepend new emails
-              newMap.set(accountId, {
-                ...existing,
-                emails: [...emails, ...existing.emails],
-                lastSync: Date.now(),
-                isLoading: false,
-                error: null,
-              })
-            } else {
-              // Replace all emails
-              newMap.set(accountId, {
-                accountId,
-                accountEmail,
-                provider: '',
-                emails,
-                lastSync: Date.now(),
-                isLoading: false,
-                error: null,
-              })
-            }
-
-            // Calculate total unread
-            let unreadCount = 0
-            newMap.forEach(acc => {
-              unreadCount += acc.emails.filter(e => !e.is_read).length
-            })
-
-            return {
-              accountEmails: newMap,
-              totalUnreadCount: unreadCount,
-            }
-          })
-          break
-        }
-
-        case 'sync_error': {
-          const { accountId, error } = data
+          const newAccount: SyncedAccountEmails = {
+            accountId,
+            email,
+            provider,
+            emails: [],
+            lastSyncTime: null,
+            syncStatus: 'idle',
+            unreadCount: 0
+          }
           
-          set(state => {
-            const newMap = new Map(state.accountEmails)
-            const existing = newMap.get(accountId)
-            
-            if (existing) {
-              newMap.set(accountId, {
-                ...existing,
-                isLoading: false,
-                error,
-              })
+          return {
+            accountEmails: {
+              ...state.accountEmails,
+              [accountId]: newAccount
             }
-
-            return { accountEmails: newMap }
-          })
-          break
-        }
-
-        case 'sync_started': {
-          const { accountId } = data
-          
-          set(state => {
-            const newMap = new Map(state.accountEmails)
-            const existing = newMap.get(accountId) || {
-              accountId,
-              accountEmail: '',
-              provider: '',
-              emails: [],
-              lastSync: 0,
-              isLoading: true,
-              error: null,
-            }
-            
-            newMap.set(accountId, {
-              ...existing,
-              isLoading: true,
-              error: null,
-            })
-
-            return {
-              accountEmails: newMap,
-              activeSyncCount: state.activeSyncCount + 1,
-            }
-          })
-          break
-        }
-
-        case 'sync_stopped': {
-          set(state => ({
-            activeSyncCount: Math.max(0, state.activeSyncCount - 1),
-          }))
-          break
-        }
-      }
-    })
-
-    // Initialize the sync service
-    emailSyncService.initialize()
-
-    set({ isInitialized: true })
-    console.log('✅ EmailSyncStore initialized')
-  },
-
-  getAccountEmails: (accountId: string) => {
-    const state = get().accountEmails.get(accountId)
-    return state?.emails || []
-  },
-
-  getAllEmails: () => {
-    const allEmails: SyncedEmail[] = []
-    
-    get().accountEmails.forEach(account => {
-      allEmails.push(...account.emails)
-    })
-
-    // Sort by timestamp descending
-    return allEmails.sort((a, b) => 
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    )
-  },
-
-  getUnreadCount: (accountId?: string) => {
-    if (accountId) {
-      const account = get().accountEmails.get(accountId)
-      return account?.emails.filter(e => !e.is_read).length || 0
-    }
-    return get().totalUnreadCount
-  },
-
-  refreshAccount: async (accountId: string) => {
-    set(state => {
-      const newMap = new Map(state.accountEmails)
-      const existing = newMap.get(accountId)
-      
-      if (existing) {
-        newMap.set(accountId, {
-          ...existing,
-          isLoading: true,
-          error: null,
+          }
         })
-      }
+      },
 
-      return { accountEmails: newMap }
-    })
+      setEmails: (accountId: string, emails: SyncedEmail[]) => {
+        console.log(`[EmailSyncStore] Setting ${emails.length} emails for account: ${accountId}`)
+        set((state) => {
+          const account = state.accountEmails[accountId]
+          if (!account) {
+            console.warn(`[EmailSyncStore] Account ${accountId} not found`)
+            return state
+          }
 
-    try {
-      await emailSyncService.refreshAccount(accountId)
-    } catch (error) {
-      // Error handled by sync service
-    }
-  },
+          const unreadCount = emails.filter(e => !e.isRead).length
+          const updatedAccount = {
+            ...account,
+            emails,
+            unreadCount,
+            lastSyncTime: new Date().toISOString(),
+            syncStatus: 'idle' as const
+          }
 
-  selectEmail: (email: SyncedEmail | null, accountId: string | null) => {
-    set({
-      selectedEmail: email,
-      selectedAccountId: accountId,
-    })
+          const newAccountEmails = {
+            ...state.accountEmails,
+            [accountId]: updatedAccount
+          }
 
-    // Auto-mark as read when selected
-    if (email && accountId && !email.is_read) {
-      get().markAsRead(accountId, email.id)
-    }
-  },
+          // Recalculate total unread
+          let totalUnread = 0
+          Object.values(newAccountEmails).forEach(acc => {
+            totalUnread += acc.unreadCount
+          })
 
-  markAsRead: (accountId: string, emailId: string) => {
-    set(state => {
-      const newMap = new Map(state.accountEmails)
-      const account = newMap.get(accountId)
-      
-      if (account) {
-        const updatedEmails = account.emails.map(e =>
-          e.id === emailId ? { ...e, is_read: true } : e
-        )
+          console.log(`[EmailSyncStore] Account ${accountId} now has ${emails.length} emails, ${unreadCount} unread`)
+
+          return {
+            accountEmails: newAccountEmails,
+            totalUnreadCount: totalUnread
+          }
+        })
+      },
+
+      addEmails: (accountId: string, emails: SyncedEmail[]) => {
+        console.log(`[EmailSyncStore] Adding ${emails.length} emails to account: ${accountId}`)
+        set((state) => {
+          const account = state.accountEmails[accountId]
+          if (!account) {
+            console.warn(`[EmailSyncStore] Account ${accountId} not found for adding emails`)
+            return state
+          }
+
+          // Merge emails, avoiding duplicates by messageId
+          const existingIds = new Set(account.emails.map(e => e.messageId))
+          const newEmails = emails.filter(e => !existingIds.has(e.messageId))
+          
+          if (newEmails.length === 0) {
+            console.log(`[EmailSyncStore] No new emails to add for account ${accountId}`)
+            return state
+          }
+
+          const mergedEmails = [...account.emails, ...newEmails]
+          const unreadCount = mergedEmails.filter(e => !e.isRead).length
+          
+          const updatedAccount = {
+            ...account,
+            emails: mergedEmails,
+            unreadCount,
+            lastSyncTime: new Date().toISOString()
+          }
+
+          const newAccountEmails = {
+            ...state.accountEmails,
+            [accountId]: updatedAccount
+          }
+
+          // Recalculate total unread
+          let totalUnread = 0
+          Object.values(newAccountEmails).forEach(acc => {
+            totalUnread += acc.unreadCount
+          })
+
+          console.log(`[EmailSyncStore] Added ${newEmails.length} new emails to ${accountId}, total: ${mergedEmails.length}`)
+
+          return {
+            accountEmails: newAccountEmails,
+            totalUnreadCount: totalUnread
+          }
+        })
+      },
+
+      markAsRead: (accountId: string, emailId: string) => {
+        set((state) => {
+          const account = state.accountEmails[accountId]
+          if (!account) return state
+
+          const updatedEmails = account.emails.map(email =>
+            email.id === emailId ? { ...email, isRead: true } : email
+          )
+          const unreadCount = updatedEmails.filter(e => !e.isRead).length
+
+          const updatedAccount = {
+            ...account,
+            emails: updatedEmails,
+            unreadCount
+          }
+
+          const newAccountEmails = {
+            ...state.accountEmails,
+            [accountId]: updatedAccount
+          }
+
+          // Recalculate total unread
+          let totalUnread = 0
+          Object.values(newAccountEmails).forEach(acc => {
+            totalUnread += acc.unreadCount
+          })
+
+          return {
+            accountEmails: newAccountEmails,
+            totalUnreadCount: totalUnread
+          }
+        })
+      },
+
+      markAsUnread: (accountId: string, emailId: string) => {
+        set((state) => {
+          const account = state.accountEmails[accountId]
+          if (!account) return state
+
+          const updatedEmails = account.emails.map(email =>
+            email.id === emailId ? { ...email, isRead: false } : email
+          )
+          const unreadCount = updatedEmails.filter(e => !e.isRead).length
+
+          const updatedAccount = {
+            ...account,
+            emails: updatedEmails,
+            unreadCount
+          }
+
+          const newAccountEmails = {
+            ...state.accountEmails,
+            [accountId]: updatedAccount
+          }
+
+          // Recalculate total unread
+          let totalUnread = 0
+          Object.values(newAccountEmails).forEach(acc => {
+            totalUnread += acc.unreadCount
+          })
+
+          return {
+            accountEmails: newAccountEmails,
+            totalUnreadCount: totalUnread
+          }
+        })
+      },
+
+      deleteEmail: (accountId: string, emailId: string) => {
+        set((state) => {
+          const account = state.accountEmails[accountId]
+          if (!account) return state
+
+          const updatedEmails = account.emails.filter(email => email.id !== emailId)
+          const unreadCount = updatedEmails.filter(e => !e.isRead).length
+
+          const updatedAccount = {
+            ...account,
+            emails: updatedEmails,
+            unreadCount
+          }
+
+          const newAccountEmails = {
+            ...state.accountEmails,
+            [accountId]: updatedAccount
+          }
+
+          // Recalculate total unread
+          let totalUnread = 0
+          Object.values(newAccountEmails).forEach(acc => {
+            totalUnread += acc.unreadCount
+          })
+
+          return {
+            accountEmails: newAccountEmails,
+            totalUnreadCount: totalUnread
+          }
+        })
+      },
+
+      setSyncStatus: (accountId: string, status: 'idle' | 'syncing' | 'error', errorMessage?: string) => {
+        set((state) => {
+          const account = state.accountEmails[accountId]
+          if (!account) return state
+
+          const updatedAccount = {
+            ...account,
+            syncStatus: status,
+            errorMessage: errorMessage || undefined
+          }
+
+          return {
+            accountEmails: {
+              ...state.accountEmails,
+              [accountId]: updatedAccount
+            },
+            isSyncing: status === 'syncing'
+          }
+        })
+      },
+
+      updateLastSyncTime: (accountId: string) => {
+        set((state) => {
+          const account = state.accountEmails[accountId]
+          if (!account) return state
+
+          const updatedAccount = {
+            ...account,
+            lastSyncTime: new Date().toISOString()
+          }
+
+          return {
+            accountEmails: {
+              ...state.accountEmails,
+              [accountId]: updatedAccount
+            }
+          }
+        })
+      },
+
+      removeAccount: (accountId: string) => {
+        console.log(`[EmailSyncStore] Removing account: ${accountId}`)
+        set((state) => {
+          const newAccountEmails = { ...state.accountEmails }
+          delete newAccountEmails[accountId]
+
+          // Recalculate total unread
+          let totalUnread = 0
+          Object.values(newAccountEmails).forEach(acc => {
+            totalUnread += acc.unreadCount
+          })
+
+          return {
+            accountEmails: newAccountEmails,
+            totalUnreadCount: totalUnread
+          }
+        })
+      },
+
+      clearAllEmails: () => {
+        console.log('[EmailSyncStore] Clearing all emails')
+        set({ accountEmails: {}, totalUnreadCount: 0 })
+      },
+
+      getAccountEmails: (accountId: string) => {
+        const account = get().accountEmails[accountId]
+        return account?.emails || []
+      },
+
+      getAllEmails: () => {
+        const allEmails: SyncedEmail[] = []
+        const accounts = get().accountEmails
         
-        newMap.set(accountId, {
-          ...account,
-          emails: updatedEmails,
+        Object.values(accounts).forEach(account => {
+          allEmails.push(...account.emails)
         })
 
-        // Recalculate unread count
-        let unreadCount = 0
-        newMap.forEach(acc => {
-          unreadCount += acc.emails.filter(e => !e.is_read).length
-        })
+        // Sort by date, newest first
+        allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        
+        console.log(`[EmailSyncStore] getAllEmails returning ${allEmails.length} total emails`)
+        return allEmails
+      },
 
-        return {
-          accountEmails: newMap,
-          totalUnreadCount: unreadCount,
-        }
+      getUnreadCount: (accountId: string) => {
+        const account = get().accountEmails[accountId]
+        return account?.unreadCount || 0
+      },
+
+      getTotalUnreadCount: () => {
+        return get().totalUnreadCount
       }
-
-      return state
-    })
-  },
-}))
+    }),
+    {
+      name: 'qumail-synced-emails',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        accountEmails: state.accountEmails,
+        totalUnreadCount: state.totalUnreadCount
+      })
+    }
+  )
+)
 
 // Export hook for easier access
 export const useSyncedEmails = (accountId?: string) => {
   const store = useEmailSyncStore()
-  
+
   if (accountId) {
     return {
       emails: store.getAccountEmails(accountId),
-      isLoading: store.accountEmails.get(accountId)?.isLoading || false,
-      error: store.accountEmails.get(accountId)?.error || null,
-      lastSync: store.accountEmails.get(accountId)?.lastSync || 0,
       unreadCount: store.getUnreadCount(accountId),
-      refresh: () => store.refreshAccount(accountId),
+      account: store.accountEmails[accountId]
     }
   }
 
   return {
     emails: store.getAllEmails(),
-    isLoading: store.activeSyncCount > 0,
-    error: null,
-    lastSync: Date.now(),
     unreadCount: store.totalUnreadCount,
-    refresh: async () => {
-      const promises: Promise<void>[] = []
-      store.accountEmails.forEach((_, id) => {
-        promises.push(store.refreshAccount(id))
-      })
-      await Promise.all(promises)
-    },
+    accounts: store.accountEmails
   }
 }

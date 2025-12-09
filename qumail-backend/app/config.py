@@ -68,16 +68,6 @@ class Settings(BaseSettings):
     google_client_id: str = Field(alias="GOOGLE_CLIENT_ID")
     google_client_secret: str = Field(alias="GOOGLE_CLIENT_SECRET")
     google_redirect_uri: str = Field(alias="GOOGLE_REDIRECT_URI")
-    
-    # Microsoft OAuth settings (for Outlook/Microsoft 365)
-    microsoft_client_id: str = Field(default="", alias="MICROSOFT_CLIENT_ID")
-    microsoft_client_secret: str = Field(default="", alias="MICROSOFT_CLIENT_SECRET")
-    microsoft_redirect_uri: str = Field(default="http://localhost:5173/auth/microsoft/callback", alias="MICROSOFT_REDIRECT_URI")
-    
-    # Yahoo OAuth settings (for Yahoo Mail)
-    yahoo_client_id: str = Field(default="", alias="YAHOO_CLIENT_ID")
-    yahoo_client_secret: str = Field(default="", alias="YAHOO_CLIENT_SECRET")
-    yahoo_redirect_uri: str = Field(default="https://127.0.0.1:5173/auth/yahoo/callback", alias="YAHOO_REDIRECT_URI")
 
     km1_base_url: str = Field(alias="KM1_BASE_URL")
     km2_base_url: str = Field(alias="KM2_BASE_URL")

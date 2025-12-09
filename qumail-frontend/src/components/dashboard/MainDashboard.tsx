@@ -11,8 +11,7 @@ import QuantumDashboard from './QuantumDashboard'
 import { SettingsPanel } from './SettingsPanel'
 import { NewComposeEmailModal, QuantumSendSummary } from '../compose/NewComposeEmailModal'
 import { KeyVaultLogin, KeyManagerDashboard } from '../keymanager'
-import { SyncedEmail } from '../../services/emailSyncService'
-import { useEmailSyncStore } from '../../stores/emailSyncStore'
+import { useEmailSyncStore, SyncedEmail } from '../../stores/emailSyncStore'
 
 // Auto-refresh interval in milliseconds (30 seconds)
 const AUTO_REFRESH_INTERVAL = 30000
@@ -709,28 +708,30 @@ export const MainDashboard: React.FC = () => {
     return {
       id: `provider_${email.id}`,
       email_id: email.id,
-      timestamp: email.timestamp,
+      timestamp: email.date,
       subject: email.subject,
-      snippet: email.body_text?.slice(0, 140) || '',
-      body: email.body_text,
-      bodyHtml: email.body_html || undefined,
-      bodyText: email.body_text,
-      sender: email.from_name || email.from_address,
-      sender_name: email.from_name,
-      sender_email: email.from_address,
-      senderName: email.from_name,
-      senderEmail: email.from_address,
-      to: email.to_address,
-      recipient: email.to_address,
-      isRead: email.is_read,
-      is_read: email.is_read,
-      read: email.is_read,
+      snippet: email.snippet || email.body?.slice(0, 140) || '',
+      body: email.body,
+      bodyHtml: email.bodyHtml || undefined,
+      bodyText: email.body,
+      sender: email.fromName || email.from,
+      sender_name: email.fromName,
+      sender_email: email.from,
+      senderName: email.fromName,
+      senderEmail: email.from,
+      to: email.to,
+      recipient: email.to,
+      isRead: email.isRead,
+      is_read: email.isRead,
+      read: email.isRead,
       securityLevel: 0,
       encrypted: false,
       requires_decryption: false,
       isDecrypted: true,
       tags: ['PROVIDER'],
       source: 'provider',
+      provider: email.provider,
+      accountId: email.accountId,
     }
   }, [])
 

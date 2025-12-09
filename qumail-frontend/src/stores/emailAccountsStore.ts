@@ -8,7 +8,7 @@ export interface EmailAccountSettings {
   imap_host: string
   imap_port: number
   imap_security: 'ssl' | 'starttls'
-  protocol: 'imap' | 'pop3'  // Rediffmail uses POP3
+  protocol: 'imap' | 'pop3' | 'oauth'  // OAuth for Microsoft Graph API, IMAP/POP3 for others
 }
 
 export interface EmailAccount {
@@ -22,6 +22,9 @@ export interface EmailAccount {
   lastSync?: string
   foldersToSync: string[]
   createdAt: string
+  // OAuth-specific fields
+  authType?: 'password' | 'oauth'
+  oauthProvider?: 'google' | 'microsoft'
 }
 
 interface EmailAccountsState {

@@ -1,8 +1,7 @@
 import React from 'react'
 import { Button } from '../ui/Button'
 import { AccountSwitcher } from '../ui/AccountSwitcher'
-import { useEmailAccountsStore } from '../../stores/emailAccountsStore'
-import { useEmailSyncStore } from '../../stores/emailSyncStore'
+import { useEmailSyncStore, EmailSyncState } from '../../stores/emailSyncStore'
 
 interface SidebarProps {
   activeFolder: string
@@ -38,12 +37,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   keyManagerType = null,
   // selectedSecurityLevels, onSecurityLevelToggle, emails - removed, not used
 }) => {
-  // Get provider account count and unread count
-  const providerAccountCount = useEmailAccountsStore(state => state.accounts.length)
-  const providerUnreadCount = useEmailSyncStore(state => state.totalUnreadCount)
+  // Get provider unread count
+  const providerUnreadCount = useEmailSyncStore((state: EmailSyncState) => state.totalUnreadCount)
 
   const iconSize = isCompact ? 'w-5 h-5' : 'w-5 h-5'
-  const iconWrapperSize = isCompact ? 'w-9 h-9' : 'w-4 h-4'
 
   // Combined inbox count: Gmail/QuMail + provider accounts
   const combinedInboxCount = emailCounts.inbox + providerUnreadCount
@@ -93,19 +90,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ]
 
   return (
-    <div className={`${isCompact ? 'w-24' : 'w-64'} h-full bg-white border-y border-r border-gray-200 rounded-r-2xl shadow-sm flex flex-col flex-shrink-0 transition-[width] duration-300 ease-in-out z-20 relative overflow-y-auto overflow-x-hidden will-change-[width]`}>
+    <div className={`${isCompact ? 'w-24' : 'w-64'} h-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col flex-shrink-0 transition-[width] duration-300 ease-in-out z-20 relative overflow-y-auto overflow-x-hidden will-change-[width]`}>
       {/* Account Switcher */}
       {!isCompact && (
-        <div className="p-3 border-b border-gray-100 dark:border-gray-800">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-800">
           <AccountSwitcher onOpenSettings={onOpenSettings} compact={isCompact} />
         </div>
       )}
 
       {/* Modern Compose Button */}
-      <div className="p-5 flex justify-center border-b border-gray-100 dark:border-gray-800">
+      <div className="p-4 flex justify-center">
         <Button
           onClick={onCompose}
-          className={`bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 text-sm ${isCompact ? 'w-12 h-12 p-0 rounded-xl' : 'w-full px-4'}`}
+          className={`bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 text-sm shadow-sm ${isCompact ? 'w-12 h-12 p-0 rounded-xl' : 'w-full px-4'}`}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -117,31 +114,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Clean Navigation Folders */}
       <div className="px-3 py-2 flex-1">
         {!isCompact && (
-          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide px-3 mb-2">
+          <h3 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-3 mb-3">
             Folders
           </h3>
         )}
-        <nav className="space-y-0.5">
+        <nav className="space-y-1">
           {folders.map((folder) => (
             <button
               key={folder.id}
               onClick={() => onFolderChange(folder.id)}
-              className={`group w-full flex items-center ${isCompact ? 'justify-center relative' : 'justify-between'} px-3 py-2.5 rounded-md text-left transition-colors duration-150 ${activeFolder === folder.id
-                  ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400'
-                  : 'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/50'
+              className={`group w-full flex items-center ${isCompact ? 'justify-center relative' : 'justify-between'} px-3 py-2.5 rounded-lg text-left transition-colors duration-150 ${activeFolder === folder.id
+                  ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
             >
-              <div className="flex items-center gap-2.5">
-                <div className={`${iconWrapperSize} flex items-center justify-center ${activeFolder === folder.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-gray-400'
+              <div className="flex items-center gap-3">
+                <div className={`flex items-center justify-center ${activeFolder === folder.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-gray-400'
                   }`}>
                   {folder.icon}
                 </div>
                 {!isCompact && <span className="font-medium text-sm">{folder.name}</span>}
               </div>
               {!isCompact && folder.count > 0 && (
-                <span className={`text-xs font-medium px-2 py-0.5 rounded ${activeFolder === folder.id
-                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-800/30 dark:text-indigo-300'
-                    : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                <span className={`text-xs font-medium min-w-[20px] text-center ${activeFolder === folder.id
+                    ? 'text-indigo-600 dark:text-indigo-400'
+                    : 'text-gray-500 dark:text-gray-400'
                   }`}>
                   {folder.count}
                 </span>
@@ -160,20 +157,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Admin Section - Key Manager */}
       <div className="px-3 py-2 border-t border-gray-100 dark:border-gray-800">
         {!isCompact && (
-          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide px-3 mb-2">
+          <h3 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-3 mb-3">
             Admin
           </h3>
         )}
         <button
           onClick={() => onNavigateToView?.('keymanager')}
-          className={`group w-full flex items-center ${isCompact ? 'justify-center relative' : 'justify-between'} px-3 py-2.5 rounded-md text-left transition-colors duration-150 ${
+          className={`group w-full flex items-center ${isCompact ? 'justify-center relative' : 'justify-between'} px-3 py-2.5 rounded-lg text-left transition-colors duration-150 ${
             currentView === 'keymanager'
-              ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400'
-              : 'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/50'
+              ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400'
+              : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
           }`}
         >
-          <div className="flex items-center gap-2.5">
-            <div className={`${iconWrapperSize} flex items-center justify-center ${
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center justify-center ${
               currentView === 'keymanager' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'
             }`}>
               <svg className={iconSize} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -183,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {!isCompact && <span className="font-medium text-sm">Key Manager</span>}
           </div>
           {!isCompact && keyManagerLoggedIn && keyManagerType && (
-            <span className="text-xs font-medium px-2 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-800/30 dark:text-purple-300">
+            <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
               {keyManagerType}
             </span>
           )}
@@ -196,8 +193,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Encryption Badge */}
-      <div className="p-5 mt-auto">
-        <div className={`bg-gray-50/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl ${isCompact ? 'p-2 flex justify-center' : 'p-3'}`}>
+      <div className="p-4 mt-auto border-t border-gray-100 dark:border-gray-800">
+        <div className={`bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg ${isCompact ? 'p-2 flex justify-center' : 'p-3'}`}>
           <div className={`flex items-center ${isCompact ? 'justify-center' : 'gap-3'}`}>
             <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0 text-green-600 dark:text-green-400">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -206,10 +203,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             {!isCompact && (
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <div className="text-sm font-medium text-green-700 dark:text-green-400">
                   Encrypted
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                <div className="text-xs text-green-600 dark:text-green-500">
                   QKD Active
                 </div>
               </div>

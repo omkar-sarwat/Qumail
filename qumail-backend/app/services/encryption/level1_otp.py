@@ -118,6 +118,14 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
                 quantum_key_chunks = [first_chunk]
                 key_fragments.append(key_id)
                 
+                # Track fragment records with size and offset for precise reconstruction
+                fragment_records: List[Dict[str, Any]] = [{
+                    "key_id": key_id,
+                    "size_bytes": len(first_chunk),
+                    "offset": 0
+                }]
+                current_offset = len(first_chunk)
+                
                 # If we need more key material, get more local keys
                 while sum(len(chunk) for chunk in quantum_key_chunks) < total_key_bytes:
                     remaining = total_key_bytes - sum(len(chunk) for chunk in quantum_key_chunks)
@@ -127,6 +135,12 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
                     if extra_key:
                         quantum_key_chunks.append(extra_key["key_material"])
                         key_fragments.append(extra_key["key_id"])
+                        fragment_records.append({
+                            "key_id": extra_key["key_id"],
+                            "size_bytes": len(extra_key["key_material"]),
+                            "offset": current_offset
+                        })
+                        current_offset += len(extra_key["key_material"])
                     else:
                         logger.warning("  Local KM exhausted, switching to main KME for remaining keys...")
                         break
@@ -200,8 +214,10 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
 
                 quantum_key_chunks: List[bytes] = []
                 fragment_records: List[Dict[str, Any]] = []
+                current_offset = 0  # Track byte offset for each fragment
 
                 def _append_key_batch(keys_batch):
+                    nonlocal current_offset
                     appended = 0
                     for key_entry in keys_batch:
                         raw_chunk = base64.b64decode(key_entry['key'])
@@ -211,8 +227,10 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
                         quantum_key_chunks.append(raw_chunk)
                         fragment_records.append({
                             "key_id": key_entry['key_ID'],
-                            "size_bytes": len(raw_chunk)
+                            "size_bytes": len(raw_chunk),
+                            "offset": current_offset  # Track exact byte position
                         })
+                        current_offset += len(raw_chunk)
                         # Store key in Local KM for future use
                         local_km.store_key(
                             key_id=key_entry['key_ID'],
@@ -308,10 +326,24 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
         logger.info(f"  Algorithm: OTP-QKD-ETSI-014 (One-Time Pad with ETSI QKD 014)")
         logger.info(f"  Security Level: Maximum (Information-theoretic security)")
         logger.info(f"  Content encrypted: {len(plaintext)} bytes")
+        logger.info(f"  Key Fragments: {len(key_fragments)} chunks")
         logger.info(f"  Protocol: ETSI GS QKD 014 REST API")
         logger.info(f"  Key Status: Retrieved from KM1 (broadcast to KM2)")
         logger.info(f"  One-Time Use: YES (key will be deleted after decryption)")
         logger.info("="*80)
+
+        # Build fragment records if not already built (for Local KM path compatibility)
+        if 'fragment_records' not in dir() or not fragment_records:
+            # Build from key_fragments with default 32-byte chunks
+            fragment_records = []
+            offset = 0
+            for kid in key_fragments:
+                fragment_records.append({
+                    "key_id": kid,
+                    "size_bytes": 32,
+                    "offset": offset
+                })
+                offset += 32
 
         return {
             "encrypted_content": encrypted_content,
@@ -323,9 +355,11 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
                 "algorithm": "OTP-QKD-ETSI-014",
                 "key_id": key_id,
                 "key_size": len(quantum_key_material),
-                "key_fragments": key_fragments,
+                "key_fragments": key_fragments,  # List of key IDs in order (backward compat)
+                "key_fragment_records": fragment_records,  # Full records with size and offset
                 "key_fragment_count": len(key_fragments),
                 "required_size": len(plaintext),
+                "chunk_size_bytes": 32,  # Standard ETSI QKD key size
                 "auth_tag": auth_tag_b64,  # Added for Integrity Gate verification
                 "quantum_enhanced": True,
                 "one_time_pad": True,

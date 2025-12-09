@@ -5,9 +5,10 @@
  * Wrap this around components that need email sync functionality.
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { useEmailSyncStore } from '../stores/emailSyncStore'
-import { emailSyncService, SyncedEmail } from './emailSyncService'
+import { emailSyncService } from './emailSyncService'
+import type { SyncedEmail } from '../stores/emailSyncStore'
 import { useAuth } from '../context/AuthContext'
 
 interface EmailSyncContextValue {
@@ -27,11 +28,10 @@ export const EmailSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const syncStore = useEmailSyncStore()
   const [isInitialized, setIsInitialized] = useState(false)
 
-  // Initialize sync when authenticated (even with 0 accounts, to set up listeners)
+  // Initialize sync when authenticated
   useEffect(() => {
     if (isAuthenticated && !isInitialized) {
-      console.log('🔄 EmailSyncProvider: Initializing sync service...')
-      syncStore.initialize()
+      console.log('🔄 EmailSyncProvider: Email sync ready')
       setIsInitialized(true)
     }
   }, [isAuthenticated, isInitialized])
@@ -46,20 +46,47 @@ export const EmailSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [isInitialized])
 
+  // Refresh all accounts using the emailSyncService
+  const refreshAll = useCallback(async () => {
+    const accountIds = Object.keys(syncStore.accountEmails)
+    for (const accountId of accountIds) {
+      const account = syncStore.accountEmails[accountId]
+      if (account) {
+        syncStore.setSyncStatus(accountId, 'syncing')
+        try {
+          await emailSyncService.startSync(accountId)
+          syncStore.setSyncStatus(accountId, 'idle')
+        } catch (error) {
+          console.error(`Error syncing account ${accountId}:`, error)
+          syncStore.setSyncStatus(accountId, 'error', String(error))
+        }
+      }
+    }
+  }, [syncStore])
+
+  // Refresh single account
+  const refreshAccount = useCallback(async (accountId: string) => {
+    const account = syncStore.accountEmails[accountId]
+    if (account) {
+      syncStore.setSyncStatus(accountId, 'syncing')
+      try {
+        await emailSyncService.startSync(accountId)
+        syncStore.setSyncStatus(accountId, 'idle')
+      } catch (error) {
+        console.error(`Error syncing account ${accountId}:`, error)
+        syncStore.setSyncStatus(accountId, 'error', String(error))
+      }
+    }
+  }, [syncStore])
+
   const value: EmailSyncContextValue = {
     isInitialized,
-    isSyncing: syncStore.activeSyncCount > 0,
+    isSyncing: syncStore.isSyncing,
     totalUnreadCount: syncStore.totalUnreadCount,
     getAllEmails: syncStore.getAllEmails,
     getAccountEmails: syncStore.getAccountEmails,
-    refreshAll: async () => {
-      const promises: Promise<void>[] = []
-      syncStore.accountEmails.forEach((_, id) => {
-        promises.push(syncStore.refreshAccount(id))
-      })
-      await Promise.all(promises)
-    },
-    refreshAccount: syncStore.refreshAccount,
+    refreshAll,
+    refreshAccount,
   }
 
   return (

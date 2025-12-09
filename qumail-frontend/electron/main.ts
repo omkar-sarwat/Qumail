@@ -27,7 +27,13 @@ let backendProcess: ChildProcess | null = null
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const isDev = !app.isPackaged
 
-// Backend is on Render (cloud) - not local
+// Ignore certificate errors for localhost in development (self-signed certs)
+if (isDev) {
+  app.commandLine.appendSwitch('ignore-certificate-errors', 'true')
+  app.commandLine.appendSwitch('allow-insecure-localhost', 'true')
+}
+
+// Backend URL - always use Render backend (no local backend needed)
 const BACKEND_URL = 'https://qumail-backend-gwec.onrender.com'
 
 // KME servers are on Render (cloud) - not local

@@ -44,10 +44,6 @@ from .api.auth import router as auth_router
 from .api.auth_2fa import router as auth_2fa_router  # TOTP 2FA authentication
 from .api.decrypt_auth import router as decrypt_auth_router  # Google Authenticator for decrypt
 from .api.gmail_routes import router as gmail_router
-from .api.microsoft_auth_routes import router as microsoft_auth_router  # Microsoft/Outlook OAuth
-from .api.microsoft_email_routes import router as microsoft_email_router  # Microsoft Graph email operations
-from .api.yahoo_auth_routes import router as yahoo_auth_router  # Yahoo OAuth
-from .api.yahoo_email_routes import router as yahoo_email_router  # Yahoo Mail operations
 from .api.provider_routes import router as provider_router
 from .api.multi_provider_routes import router as multi_provider_router
 from .api.unified_email_routes import router as unified_email_router  # Unified outbound + separate inbound
@@ -344,6 +340,10 @@ mandatory_origins = [
     "https://qumail-rho.vercel.app",
     "https://qumail-frontend.vercel.app",
     "https://qumail-frontend.netlify.app",
+    "https://localhost:5173",  # Local dev with HTTPS (for Yahoo OAuth)
+    "https://127.0.0.1:5173",  # Local dev with HTTPS (alternative)
+    "http://localhost:5173",   # Local dev with HTTP
+    "http://127.0.0.1:5173",   # Alternative local dev
 ]
 for origin in mandatory_origins:
     if origin not in cors_origins:
@@ -389,10 +389,6 @@ app.include_router(auth_router)
 app.include_router(auth_2fa_router)  # TOTP 2FA authentication routes
 app.include_router(decrypt_auth_router)  # Google Authenticator for decrypt verification
 app.include_router(gmail_router)
-app.include_router(microsoft_auth_router)  # Microsoft/Outlook OAuth routes
-app.include_router(microsoft_email_router)  # Microsoft Graph email operations
-app.include_router(yahoo_auth_router)  # Yahoo OAuth routes
-app.include_router(yahoo_email_router)  # Yahoo Mail operations
 app.include_router(encryption_router)
 app.include_router(quantum_encryption_router)  # New quantum encryption API
 app.include_router(complete_email_router)  # Complete email flow with encryption

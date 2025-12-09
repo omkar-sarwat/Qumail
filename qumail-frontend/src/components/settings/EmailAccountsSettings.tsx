@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Mail,
@@ -15,6 +15,7 @@ import {
   CheckCircle,
   Folder,
   Key,
+  ExternalLink,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiService } from '../../services/api'
@@ -62,6 +63,43 @@ export const EmailAccountsSettings: React.FC = () => {
   const [reauthAccountId, setReauthAccountId] = useState<string | null>(null)
   const [reauthPassword, setReauthPassword] = useState('')
   const [isReauthenticating, setIsReauthenticating] = useState(false)
+  const [isMicrosoftOAuthConfigured, setIsMicrosoftOAuthConfigured] = useState(false)
+  const [isMicrosoftAuthLoading, setIsMicrosoftAuthLoading] = useState(false)
+
+  // Check if Microsoft OAuth is configured
+  useEffect(() => {
+    const checkMicrosoftOAuth = async () => {
+      try {
+        const response = await apiService.checkMicrosoftOAuthStatus()
+        setIsMicrosoftOAuthConfigured(response.configured)
+      } catch (error) {
+        console.error('Failed to check Microsoft OAuth status:', error)
+        setIsMicrosoftOAuthConfigured(false)
+      }
+    }
+    checkMicrosoftOAuth()
+  }, [])
+
+  // Handle Microsoft/Outlook OAuth login
+  const handleMicrosoftLogin = async () => {
+    setIsMicrosoftAuthLoading(true)
+    try {
+      const response = await apiService.getMicrosoftAuthUrl()
+      if (response.authorization_url) {
+        // Store state for CSRF validation
+        sessionStorage.setItem('microsoft_oauth_state', response.state)
+        // Redirect to Microsoft OAuth
+        window.location.href = response.authorization_url
+      } else {
+        toast.error('Failed to get Microsoft authorization URL')
+      }
+    } catch (error: any) {
+      console.error('Microsoft OAuth error:', error)
+      toast.error(error.response?.data?.detail || 'Failed to start Microsoft login')
+    } finally {
+      setIsMicrosoftAuthLoading(false)
+    }
+  }
 
   // Re-authenticate account with new password
   const handleReauthenticate = async (accountId: string) => {
@@ -181,7 +219,22 @@ export const EmailAccountsSettings: React.FC = () => {
       }
     } catch (error: any) {
       setTestResults((prev) => ({ ...prev, imap: 'failed' }))
-      toast.error(`${formData.settings.protocol.toUpperCase()} test failed: ${error.response?.data?.detail || error.message}`)
+      const errorMsg = error.response?.data?.detail || error.message
+      // Add helpful guidance based on provider
+      let guidance = ''
+      const provider = formData.provider.toLowerCase()
+      if (errorMsg.toLowerCase().includes('authentication') || errorMsg.toLowerCase().includes('login')) {
+        if (provider.includes('outlook') || provider.includes('hotmail')) {
+          guidance = '\n\n💡 For Outlook/Hotmail: Go to account.microsoft.com → Security → App passwords → Create new app password'
+        } else if (provider.includes('yahoo')) {
+          guidance = '\n\n💡 For Yahoo: Go to Account Security → Generate app password → Select "Other App"'
+        } else if (provider.includes('gmail')) {
+          guidance = '\n\n💡 For Gmail: Go to myaccount.google.com → Security → App passwords → Create new'
+        } else if (provider.includes('rediff')) {
+          guidance = '\n\n💡 For Rediffmail: Enable POP3 in Settings → Mail Settings → POP Access'
+        }
+      }
+      toast.error(`${formData.settings.protocol.toUpperCase()} test failed: ${errorMsg}${guidance}`, { duration: 8000 })
     }
 
     // Test SMTP
@@ -199,7 +252,18 @@ export const EmailAccountsSettings: React.FC = () => {
       }
     } catch (error: any) {
       setTestResults((prev) => ({ ...prev, smtp: 'failed' }))
-      toast.error(`SMTP test failed: ${error.response?.data?.detail || error.message}`)
+      const errorMsg = error.response?.data?.detail || error.message
+      // Add helpful guidance based on provider
+      let guidance = ''
+      const provider = formData.provider.toLowerCase()
+      if (errorMsg.toLowerCase().includes('authentication') || errorMsg.toLowerCase().includes('login')) {
+        if (provider.includes('outlook') || provider.includes('hotmail')) {
+          guidance = '\n\n💡 For Outlook: Use App Password from account.microsoft.com → Security'
+        } else if (provider.includes('yahoo')) {
+          guidance = '\n\n💡 For Yahoo: Use App Password from Account Security settings'
+        }
+      }
+      toast.error(`SMTP test failed: ${errorMsg}${guidance}`, { duration: 8000 })
     }
 
     // If IMAP succeeded, try to list folders
@@ -272,79 +336,90 @@ export const EmailAccountsSettings: React.FC = () => {
   }
 
   return (
-    <div className="bg-gray-900/50 backdrop-blur-xl rounded-2xl border border-gray-700/50 p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl">
-            <Mail className="w-6 h-6 text-white" />
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center">
+              <Mail className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Email Accounts</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Manage your connected email accounts</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-white">Email Accounts</h2>
-            <p className="text-sm text-gray-400">Manage your email accounts for QuMail</p>
-          </div>
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Account
+          </button>
         </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:opacity-90 transition-opacity"
-        >
-          <Plus className="w-4 h-4" />
-          Add Account
-        </button>
       </div>
 
       {/* Account List */}
-      <div className="space-y-4">
+      <div className="p-6 space-y-3">
         {accounts.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <Mail className="w-16 h-16 mx-auto mb-4 opacity-50" />
-            <p>No email accounts configured</p>
-            <p className="text-sm mt-2">Add an account to start sending and receiving encrypted emails</p>
+          <div className="text-center py-12">
+            <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
+              <Mail className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+            </div>
+            <p className="text-gray-900 dark:text-white font-medium">No email accounts configured</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Add an account to start sending and receiving encrypted emails</p>
           </div>
         ) : (
           accounts.map((account) => (
             <motion.div
               key={account.id}
               layout
-              className={`p-4 rounded-xl border transition-colors ${
+              className={`p-4 rounded-lg border transition-colors ${
                 account.id === activeAccountId
-                  ? 'bg-blue-500/10 border-blue-500/50'
-                  : 'bg-gray-800/50 border-gray-700/50 hover:border-gray-600/50'
+                  ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-700'
+                  : 'bg-gray-50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    account.id === activeAccountId ? 'bg-blue-500' : 'bg-gray-700'
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    account.id === activeAccountId 
+                      ? 'bg-indigo-100 dark:bg-indigo-900/30' 
+                      : 'bg-gray-200 dark:bg-gray-700'
                   }`}>
-                    <Mail className="w-5 h-5 text-white" />
+                    <Mail className={`w-5 h-5 ${
+                      account.id === activeAccountId 
+                        ? 'text-indigo-600 dark:text-indigo-400' 
+                        : 'text-gray-600 dark:text-gray-400'
+                    }`} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-white">{account.email}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{account.email}</span>
                       {account.isVerified && (
-                        <CheckCircle className="w-4 h-4 text-green-400" />
+                        <CheckCircle className="w-4 h-4 text-green-500" />
                       )}
                       {account.id === activeAccountId && (
-                        <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">
+                        <span className="text-xs px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full font-medium">
                           Active
                         </span>
                       )}
                     </div>
-                    <span className="text-sm text-gray-400">{account.provider}</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">{account.provider}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {account.id !== activeAccountId && (
                     <button
                       onClick={() => setActiveAccount(account.id)}
-                      className="px-3 py-1.5 text-sm bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-colors"
+                      className="px-3 py-1.5 text-sm bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-medium rounded-lg hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors"
                     >
                       Set Active
                     </button>
                   )}
                   <button
                     onClick={() => setExpandedAccount(expandedAccount === account.id ? null : account.id)}
-                    className="p-2 text-gray-400 hover:text-white transition-colors"
+                    className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
                   >
                     {expandedAccount === account.id ? (
                       <ChevronUp className="w-4 h-4" />
@@ -360,9 +435,8 @@ export const EmailAccountsSettings: React.FC = () => {
                         toast.success('Account removed')
                       }
                     }}
-                    className="p-2 text-red-400 hover:text-red-300 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
+                    className="p-2 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors"
+                  >n                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -374,32 +448,32 @@ export const EmailAccountsSettings: React.FC = () => {
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    className="mt-4 pt-4 border-t border-gray-700/50 overflow-hidden"
+                    className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 overflow-hidden"
                   >
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <span className="text-gray-400">Incoming ({account.settings.protocol.toUpperCase()}):</span>
-                        <p className="text-white">{account.settings.imap_host}:{account.settings.imap_port}</p>
+                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Incoming ({account.settings.protocol.toUpperCase()})</span>
+                        <p className="text-gray-900 dark:text-white mt-1">{account.settings.imap_host}:{account.settings.imap_port}</p>
                       </div>
                       <div>
-                        <span className="text-gray-400">Outgoing (SMTP):</span>
-                        <p className="text-white">{account.settings.smtp_host}:{account.settings.smtp_port}</p>
+                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Outgoing (SMTP)</span>
+                        <p className="text-gray-900 dark:text-white mt-1">{account.settings.smtp_host}:{account.settings.smtp_port}</p>
                       </div>
                       <div>
-                        <span className="text-gray-400">Folders to Sync:</span>
-                        <p className="text-white">{account.foldersToSync.join(', ')}</p>
+                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Folders to Sync</span>
+                        <p className="text-gray-900 dark:text-white mt-1">{account.foldersToSync.join(', ')}</p>
                       </div>
                       <div>
-                        <span className="text-gray-400">Added:</span>
-                        <p className="text-white">{new Date(account.createdAt).toLocaleDateString()}</p>
+                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Added</span>
+                        <p className="text-gray-900 dark:text-white mt-1">{new Date(account.createdAt).toLocaleDateString()}</p>
                       </div>
                     </div>
                     
                     {/* Re-authenticate Section */}
-                    <div className="mt-4 pt-4 border-t border-gray-700/50">
+                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                       {reauthAccountId === account.id ? (
                         <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-yellow-400 text-sm mb-2">
+                          <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm mb-2">
                             <Key className="w-4 h-4" />
                             <span>Re-enter your password to sync emails</span>
                           </div>
@@ -408,13 +482,13 @@ export const EmailAccountsSettings: React.FC = () => {
                             value={reauthPassword}
                             onChange={(e) => setReauthPassword(e.target.value)}
                             placeholder="Enter your password"
-                            className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           />
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleReauthenticate(account.id)}
                               disabled={isReauthenticating || !reauthPassword}
-                              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                             >
                               {isReauthenticating ? (
                                 <>
@@ -433,7 +507,7 @@ export const EmailAccountsSettings: React.FC = () => {
                                 setReauthAccountId(null)
                                 setReauthPassword('')
                               }}
-                              className="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 transition-colors"
+                              className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                             >
                               Cancel
                             </button>
@@ -442,7 +516,7 @@ export const EmailAccountsSettings: React.FC = () => {
                       ) : (
                         <button
                           onClick={() => setReauthAccountId(account.id)}
-                          className="flex items-center gap-2 px-3 py-2 bg-yellow-500/20 text-yellow-400 rounded-lg hover:bg-yellow-500/30 transition-colors text-sm"
+                          className="flex items-center gap-2 px-3 py-2 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors text-sm font-medium"
                         >
                           <Key className="w-4 h-4" />
                           Re-enter Password (Sync Emails)
@@ -464,21 +538,21 @@ export const EmailAccountsSettings: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
             onClick={(e) => e.target === e.currentTarget && setShowAddForm(false)}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+              className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
             >
-              <div className="p-6 border-b border-gray-700">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xl font-bold text-white">Add Email Account</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Add Email Account</h3>
                   <button
                     onClick={() => setShowAddForm(false)}
-                    className="p-2 text-gray-400 hover:text-white transition-colors"
+                    className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -486,9 +560,43 @@ export const EmailAccountsSettings: React.FC = () => {
               </div>
 
               <div className="p-6 space-y-4">
+                {/* OAuth Login Options */}
+                {isMicrosoftOAuthConfigured && (
+                  <div className="space-y-3">
+                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Quick Sign In (Recommended)
+                    </div>
+                    <button
+                      onClick={handleMicrosoftLogin}
+                      disabled={isMicrosoftAuthLoading}
+                      className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#2F2F2F] hover:bg-[#444444] text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {isMicrosoftAuthLoading ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none">
+                          <path d="M0 0h10v10H0V0z" fill="#F25022"/>
+                          <path d="M11 0h10v10H11V0z" fill="#7FBA00"/>
+                          <path d="M0 11h10v10H0V11z" fill="#00A4EF"/>
+                          <path d="M11 11h10v10H11V11z" fill="#FFB900"/>
+                        </svg>
+                      )}
+                      <span className="font-medium">Continue with Microsoft (Outlook)</span>
+                    </button>
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+                      </div>
+                      <div className="relative flex justify-center text-sm">
+                        <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">or add manually</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Email */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Email Address
                   </label>
                   <div className="relative">
@@ -497,14 +605,14 @@ export const EmailAccountsSettings: React.FC = () => {
                       value={formData.email}
                       onChange={(e) => handleEmailChange(e.target.value)}
                       placeholder="you@rediffmail.com"
-                      className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                      className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                     {isDetecting && (
-                      <Loader2 className="absolute right-3 top-3 w-5 h-5 text-blue-400 animate-spin" />
+                      <Loader2 className="absolute right-3 top-2.5 w-5 h-5 text-indigo-500 animate-spin" />
                     )}
                   </div>
                   {formData.provider && (
-                    <p className="mt-2 text-sm text-green-400">
+                    <p className="mt-2 text-sm text-green-600 dark:text-green-400">
                       ✓ Detected: {formData.provider}
                     </p>
                   )}
@@ -512,24 +620,53 @@ export const EmailAccountsSettings: React.FC = () => {
 
                 {/* Password */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Password
                   </label>
                   <input
                     type="password"
                     value={formData.password}
                     onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
-                    placeholder="Your email password"
-                    className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    placeholder="Your email password or app password"
+                    className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
-                    For Gmail/Yahoo/Outlook, you may need an app-specific password
-                  </p>
                 </div>
+
+                {/* App Password Help Box */}
+                {formData.provider && ['Yahoo', 'Outlook', 'Gmail', 'Rediffmail'].some(p => formData.provider.includes(p)) && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <Key className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                      <div className="text-xs text-amber-800 dark:text-amber-300">
+                        <strong>Important:</strong> {formData.provider} likely requires an <strong>App Password</strong> instead of your regular password.
+                        {formData.provider.includes('Outlook') && (
+                          <div className="mt-1">
+                            → Go to <a href="https://account.microsoft.com/security" target="_blank" rel="noopener noreferrer" className="underline">account.microsoft.com/security</a> → App passwords
+                          </div>
+                        )}
+                        {formData.provider.includes('Yahoo') && (
+                          <div className="mt-1">
+                            → Go to Yahoo Account Security → Generate app password
+                          </div>
+                        )}
+                        {formData.provider.includes('Gmail') && (
+                          <div className="mt-1">
+                            → Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="underline">myaccount.google.com/apppasswords</a>
+                          </div>
+                        )}
+                        {formData.provider.includes('Rediff') && (
+                          <div className="mt-1">
+                            → Enable POP3 in Rediffmail Settings → Mail Settings → POP Access
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Display Name */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Display Name (optional)
                   </label>
                   <input
@@ -537,14 +674,14 @@ export const EmailAccountsSettings: React.FC = () => {
                     value={formData.displayName}
                     onChange={(e) => setFormData((prev) => ({ ...prev, displayName: e.target.value }))}
                     placeholder="Your Name"
-                    className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
 
                 {/* Advanced Settings Toggle */}
                 <button
                   onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+                  className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                 >
                   <Settings className="w-4 h-4" />
                   {showAdvanced ? 'Hide' : 'Show'} Advanced Settings
@@ -562,11 +699,11 @@ export const EmailAccountsSettings: React.FC = () => {
                     >
                       {/* Protocol */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Incoming Protocol
                         </label>
                         <div className="flex gap-4">
-                          <label className="flex items-center gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="radio"
                               checked={formData.settings.protocol === 'imap'}
@@ -574,11 +711,11 @@ export const EmailAccountsSettings: React.FC = () => {
                                 ...prev,
                                 settings: { ...prev.settings, protocol: 'imap' },
                               }))}
-                              className="text-blue-500"
+                              className="text-indigo-600 focus:ring-indigo-500"
                             />
-                            <span className="text-gray-300">IMAP</span>
+                            <span className="text-gray-700 dark:text-gray-300">IMAP</span>
                           </label>
-                          <label className="flex items-center gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="radio"
                               checked={formData.settings.protocol === 'pop3'}
@@ -586,9 +723,9 @@ export const EmailAccountsSettings: React.FC = () => {
                                 ...prev,
                                 settings: { ...prev.settings, protocol: 'pop3' },
                               }))}
-                              className="text-blue-500"
+                              className="text-indigo-600 focus:ring-indigo-500"
                             />
-                            <span className="text-gray-300">POP3</span>
+                            <span className="text-gray-700 dark:text-gray-300">POP3</span>
                           </label>
                         </div>
                       </div>
@@ -596,7 +733,7 @@ export const EmailAccountsSettings: React.FC = () => {
                       {/* Incoming Server */}
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             {formData.settings.protocol.toUpperCase()} Server
                           </label>
                           <input
@@ -607,11 +744,11 @@ export const EmailAccountsSettings: React.FC = () => {
                               settings: { ...prev.settings, imap_host: e.target.value },
                             }))}
                             placeholder={`${formData.settings.protocol}.example.com`}
-                            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             Port
                           </label>
                           <input
@@ -621,7 +758,7 @@ export const EmailAccountsSettings: React.FC = () => {
                               ...prev,
                               settings: { ...prev.settings, imap_port: parseInt(e.target.value) },
                             }))}
-                            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           />
                         </div>
                       </div>
@@ -629,7 +766,7 @@ export const EmailAccountsSettings: React.FC = () => {
                       {/* SMTP Server */}
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             SMTP Server
                           </label>
                           <input
@@ -640,11 +777,11 @@ export const EmailAccountsSettings: React.FC = () => {
                               settings: { ...prev.settings, smtp_host: e.target.value },
                             }))}
                             placeholder="smtp.example.com"
-                            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             Port
                           </label>
                           <input
@@ -654,7 +791,7 @@ export const EmailAccountsSettings: React.FC = () => {
                               ...prev,
                               settings: { ...prev.settings, smtp_port: parseInt(e.target.value) },
                             }))}
-                            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           />
                         </div>
                       </div>
@@ -662,7 +799,7 @@ export const EmailAccountsSettings: React.FC = () => {
                       {/* Security */}
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             Incoming Security
                           </label>
                           <select
@@ -671,14 +808,14 @@ export const EmailAccountsSettings: React.FC = () => {
                               ...prev,
                               settings: { ...prev.settings, imap_security: e.target.value as 'ssl' | 'starttls' },
                             }))}
-                            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           >
                             <option value="ssl">SSL/TLS</option>
                             <option value="starttls">STARTTLS</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             SMTP Security
                           </label>
                           <select
@@ -687,7 +824,7 @@ export const EmailAccountsSettings: React.FC = () => {
                               ...prev,
                               settings: { ...prev.settings, smtp_security: e.target.value as 'ssl' | 'starttls' },
                             }))}
-                            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           >
                             <option value="ssl">SSL/TLS</option>
                             <option value="starttls">STARTTLS</option>
@@ -699,11 +836,11 @@ export const EmailAccountsSettings: React.FC = () => {
                 </AnimatePresence>
 
                 {/* Test Connection */}
-                <div className="pt-4 border-t border-gray-700">
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                   <button
                     onClick={handleTestConnection}
                     disabled={isTesting || !formData.email || !formData.password}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 text-white rounded-xl hover:bg-gray-700 transition-colors disabled:opacity-50"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-white font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
                   >
                     {isTesting ? (
                       <>
@@ -721,10 +858,10 @@ export const EmailAccountsSettings: React.FC = () => {
                   {/* Test Results */}
                   {(testResults.imap || testResults.smtp) && (
                     <div className="mt-4 grid grid-cols-2 gap-4">
-                      <div className={`p-3 rounded-lg ${
-                        testResults.imap === 'success' ? 'bg-green-500/20 text-green-400' :
-                        testResults.imap === 'failed' ? 'bg-red-500/20 text-red-400' :
-                        'bg-gray-800 text-gray-400'
+                      <div className={`p-3 rounded-lg text-sm font-medium ${
+                        testResults.imap === 'success' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                        testResults.imap === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' :
+                        'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                       }`}>
                         <div className="flex items-center gap-2">
                           {testResults.imap === 'success' ? (
@@ -735,10 +872,10 @@ export const EmailAccountsSettings: React.FC = () => {
                           {formData.settings.protocol.toUpperCase()}: {testResults.imap || 'Not tested'}
                         </div>
                       </div>
-                      <div className={`p-3 rounded-lg ${
-                        testResults.smtp === 'success' ? 'bg-green-500/20 text-green-400' :
-                        testResults.smtp === 'failed' ? 'bg-red-500/20 text-red-400' :
-                        'bg-gray-800 text-gray-400'
+                      <div className={`p-3 rounded-lg text-sm font-medium ${
+                        testResults.smtp === 'success' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                        testResults.smtp === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' :
+                        'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                       }`}>
                         <div className="flex items-center gap-2">
                           {testResults.smtp === 'success' ? (
@@ -755,8 +892,8 @@ export const EmailAccountsSettings: React.FC = () => {
 
                 {/* Folders to Sync */}
                 {availableFolders.length > 0 && (
-                  <div className="pt-4 border-t border-gray-700">
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       <Folder className="w-4 h-4 inline mr-2" />
                       Folders to Sync
                     </label>
@@ -765,10 +902,10 @@ export const EmailAccountsSettings: React.FC = () => {
                         <button
                           key={folder}
                           onClick={() => toggleFolderSync(folder)}
-                          className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                             formData.foldersToSync.includes(folder)
-                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50'
-                              : 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600'
+                              ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
                           }`}
                         >
                           {formData.foldersToSync.includes(folder) && (
@@ -783,17 +920,17 @@ export const EmailAccountsSettings: React.FC = () => {
               </div>
 
               {/* Footer */}
-              <div className="p-6 border-t border-gray-700 flex gap-4">
+              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex gap-3 bg-gray-50 dark:bg-gray-900/50">
                 <button
                   onClick={() => setShowAddForm(false)}
-                  className="flex-1 px-4 py-3 bg-gray-800 text-gray-300 rounded-xl hover:bg-gray-700 transition-colors"
+                  className="flex-1 px-4 py-2.5 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 font-medium transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleAddAccount}
                   disabled={testResults.imap !== 'success' || testResults.smtp !== 'success'}
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50"
+                  className="flex-1 px-4 py-2.5 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Add Account
                 </button>

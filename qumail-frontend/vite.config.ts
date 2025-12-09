@@ -37,6 +37,7 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: false, // Allow fallback to another port
+    host: 'localhost', // Use localhost for Electron dev
     // Enable HMR with overlay disabled to reduce visual noise
     hmr: {
       overlay: false,
