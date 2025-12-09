@@ -74,7 +74,7 @@ class CompleteEmailService:
             # ========== QUMAIL USER VERIFICATION ==========
             # Only allow sending encrypted emails to registered QuMail users
             # Non-QuMail users cannot decrypt quantum-encrypted emails
-            if db:
+            if db is not None:
                 user_repo = UserRepository(db)
                 
                 # Check if recipient is a registered QuMail user
@@ -131,7 +131,7 @@ class CompleteEmailService:
 
             # ========== STORE QKD DATA IN MONGODB ==========
             # Store quantum key information in MongoDB for full lifecycle tracking
-            if db and metadata.get('key_id') or metadata.get('key_fragments'):
+            if db is not None and (metadata.get('key_id') or metadata.get('key_fragments')):
                 try:
                     qkd_key_repo = QKDKeyRepository(db)
                     qkd_audit_repo = QKDAuditLogRepository(db)

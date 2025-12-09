@@ -68,7 +68,7 @@ class AuditLogger:
             else:
                 self.logger.info(log_message)
             
-            if db:
+            if db is not None:
                 await self._store_audit_log(audit_entry, db)
         except Exception as e:
             logger.error(f"Failed to log audit event: {e}")

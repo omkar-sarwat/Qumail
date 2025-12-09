@@ -187,7 +187,7 @@ class RealEncryptedGmailService:
                     thread_id = data.get("threadId", "")
 
                     # Persist Gmail metadata on the stored encrypted email record
-                    if db and email_id:
+                    if db is not None and email_id:
                         email_repo = EmailRepository(db)
                         attachment_repo = AttachmentRepository(db)
 
