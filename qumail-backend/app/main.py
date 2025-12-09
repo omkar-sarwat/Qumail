@@ -44,6 +44,10 @@ from .api.auth import router as auth_router
 from .api.auth_2fa import router as auth_2fa_router  # TOTP 2FA authentication
 from .api.decrypt_auth import router as decrypt_auth_router  # Google Authenticator for decrypt
 from .api.gmail_routes import router as gmail_router
+from .api.microsoft_auth_routes import router as microsoft_auth_router  # Microsoft/Outlook OAuth
+from .api.microsoft_email_routes import router as microsoft_email_router  # Microsoft Graph email operations
+from .api.yahoo_auth_routes import router as yahoo_auth_router  # Yahoo OAuth
+from .api.yahoo_email_routes import router as yahoo_email_router  # Yahoo Mail operations
 from .api.provider_routes import router as provider_router
 from .api.multi_provider_routes import router as multi_provider_router
 from .api.unified_email_routes import router as unified_email_router  # Unified outbound + separate inbound
@@ -51,6 +55,7 @@ from .api.encryption_routes import router as encryption_router
 from .api.quantum_encryption_routes import router as quantum_encryption_router
 from .api.complete_email_routes import router as complete_email_router
 from .api.draft_routes import router as draft_router
+from .api.local_km_routes import router as local_km_router  # Local Key Manager routes
 from .routes.emails import router as emails_router
 from .routes.quantum import router as quantum_router
 from .routes.km_status import router as km_status_router
@@ -217,6 +222,31 @@ async def lifespan(app: FastAPI):
         
         logger.info("Quantum security systems initialized successfully")
         
+        # Initialize Local Key Manager with auto-fill service
+        logger.info("Initializing Local Key Manager...")
+        try:
+            from .services.local_key_manager import initialize_local_key_manager, get_local_key_manager
+            local_km = await initialize_local_key_manager()
+            app.state.local_key_manager = local_km
+            
+            # Initial fetch of 10 keys to pre-fill pool on startup
+            stats = local_km.get_key_statistics()
+            logger.info(f"Local KM current keys: {stats['available_keys']}")
+            
+            if stats['available_keys'] < 10:
+                keys_to_fetch = 10 - stats['available_keys']
+                logger.info(f"Pre-fetching {keys_to_fetch} keys to fill Local KM pool to 10...")
+                await local_km.fetch_keys_from_main_kme(count=keys_to_fetch)
+                stats = local_km.get_key_statistics()
+            
+            logger.info(f"✓ Local Key Manager initialized (keys: {stats['available_keys']})")
+            logger.info(f"  Auto-fill enabled: {local_km.config.AUTO_FILL_ENABLED}")
+            logger.info(f"  Auto-fill interval: {local_km.config.AUTO_FILL_INTERVAL_SECONDS}s")
+            logger.info(f"  Min threshold: {local_km.config.MIN_KEYS_THRESHOLD} keys")
+        except Exception as e:
+            logger.warning(f"⚠️ Local Key Manager initialization failed: {e}")
+            logger.warning("  Encryption will fallback to direct KME access")
+        
         # Log startup
         await security_auditor.log_incident(
             SecurityIncidentType.SYSTEM_STARTUP,
@@ -240,6 +270,11 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down QuMail Secure Email Backend...")
     
     try:
+        # Stop Local Key Manager auto-fill service
+        if hasattr(app.state, 'local_key_manager') and app.state.local_key_manager:
+            logger.info("Stopping Local Key Manager auto-fill service...")
+            await app.state.local_key_manager.stop_auto_fill_service()
+        
         # Log shutdown
         await security_auditor.log_incident(
             SecurityIncidentType.SYSTEM_SHUTDOWN,
@@ -354,6 +389,10 @@ app.include_router(auth_router)
 app.include_router(auth_2fa_router)  # TOTP 2FA authentication routes
 app.include_router(decrypt_auth_router)  # Google Authenticator for decrypt verification
 app.include_router(gmail_router)
+app.include_router(microsoft_auth_router)  # Microsoft/Outlook OAuth routes
+app.include_router(microsoft_email_router)  # Microsoft Graph email operations
+app.include_router(yahoo_auth_router)  # Yahoo OAuth routes
+app.include_router(yahoo_email_router)  # Yahoo Mail operations
 app.include_router(encryption_router)
 app.include_router(quantum_encryption_router)  # New quantum encryption API
 app.include_router(complete_email_router)  # Complete email flow with encryption
@@ -365,6 +404,7 @@ app.include_router(emails_router)
 app.include_router(quantum_router)
 app.include_router(km_status_router)
 app.include_router(test_quantum_router)  # Test endpoints for quantum system
+app.include_router(local_km_router)  # Local Key Manager API
 
 @app.get("/")
 async def root():

@@ -17,6 +17,8 @@ from ..exceptions import Level1SecurityError
 from ..quantum_key_manager import OneTimeQuantumKeyManager, SecurityLevel
 from ..qumail_encryption import QuMailQuantumEncryption
 from ..security_auditor import security_auditor, SecurityIncidentType
+# Local Key Manager for local key caching and fast retrieval
+from ..local_key_manager import get_local_key_manager
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +67,7 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
         logger.info("="*80)
         
         key_fragments: List[str] = []
+        use_local_km = False  # Track if we used local key manager
 
         # For testing only - use provided key
         if qkd_key is not None:
@@ -79,102 +82,195 @@ async def encrypt_otp(content: str, user_email: str, qkd_key: Optional[bytes] = 
             key_fragments.append(key_id)
         
         else:
-            # PRODUCTION PATH: Retrieve quantum key from KM1 using direct API calls
-            logger.info("ETSI QKD 014: Retrieving encryption key from KM1...")
-            logger.info("  - Same key will be broadcast to KM2 (synchronized via HTTP)")
-            logger.info("  - One-time use only (no regeneration)")
+            # PRODUCTION PATH: Try Local Key Manager first, fallback to main KME
+            logger.info("ENCRYPTION KEY RETRIEVAL: Local KM first, fallback to main KME...")
             
-            # Get optimized KM clients for Next Door Key Simulator
-            km1_client, km2_client = get_optimized_km_clients()
+            # Initialize Local Key Manager
+            local_km = get_local_key_manager()
+            local_km_stats = local_km.get_key_statistics()
             
-            # Use optimized KM client to request encryption key from KME1
-            logger.info("Requesting encryption key from KME1 via optimized client...")
+            logger.info(f"  Local KM Status: {local_km_stats['available_keys']} keys available")
             
-            slave_sae_id = "c565d5aa-8670-4446-8471-b0e53e315d2a"  # KME2's SAE ID
+            # Try to get key from Local Key Manager first
+            local_key_data = None
+            if local_km_stats['available_keys'] > 0:
+                logger.info("  Attempting to use LOCAL KEY MANAGER...")
+                try:
+                    local_key_data = local_km.get_local_key(required_bytes=32)  # Get one key
+                except Exception as e:
+                    logger.warning(f"  Local KM retrieval failed: {e}")
+                    local_key_data = None
             
-            # The Next Door Key Simulator returns fixed 32-byte (256-bit) keys
-            # So we need to request enough keys to cover the total required bytes
-            key_chunk_size = 32  # 256 bits = 32 bytes per key
-            keys_needed_initial = (total_key_bytes + key_chunk_size - 1) // key_chunk_size
-            
-            logger.info(f"Total key bytes needed: {total_key_bytes}")
-            logger.info(f"Key chunk size: {key_chunk_size} bytes (256 bits)")
-            logger.info(f"Keys needed: {keys_needed_initial}")
-            
-            km1_keys = await km1_client.request_enc_keys(
-                slave_sae_id=slave_sae_id,
-                number=keys_needed_initial,
-                size=256  # Each key is 256 bits (32 bytes)
-            )
-            
-            if not km1_keys:
-                raise Level1SecurityError("No quantum keys available on KM1. Available: 0, Required: 1")
-
-            quantum_key_chunks: List[bytes] = []
-            fragment_records: List[Dict[str, Any]] = []
-
-            def _append_key_batch(keys_batch):
-                appended = 0
-                for key_entry in keys_batch:
-                    raw_chunk = base64.b64decode(key_entry['key'])
-                    if not raw_chunk:
-                        logger.warning("Received empty key chunk from KM1 for ID %s", key_entry.get('key_ID'))
-                        continue
-                    quantum_key_chunks.append(raw_chunk)
-                    fragment_records.append({
-                        "key_id": key_entry['key_ID'],
-                        "size_bytes": len(raw_chunk)
-                    })
-                    appended += len(raw_chunk)
-                    logger.info(
-                        "  - Fragment %s | ID=%s | %s bytes",
-                        len(fragment_records),
-                        key_entry['key_ID'],
-                        len(raw_chunk)
+            if local_key_data:
+                # SUCCESS: Using key from Local Key Manager
+                use_local_km = True
+                key_id = local_key_data["key_id"]
+                first_chunk = local_key_data["key_material"]
+                
+                logger.info("="*60)
+                logger.info("✓ USING KEY FROM LOCAL KEY MANAGER")
+                logger.info(f"  Key ID: {key_id}")
+                logger.info(f"  Key Size: {len(first_chunk)} bytes")
+                logger.info(f"  Source: {local_key_data.get('source', 'local')}")
+                logger.info("="*60)
+                
+                # Build quantum key material from local key(s)
+                quantum_key_chunks = [first_chunk]
+                key_fragments.append(key_id)
+                
+                # If we need more key material, get more local keys
+                while sum(len(chunk) for chunk in quantum_key_chunks) < total_key_bytes:
+                    remaining = total_key_bytes - sum(len(chunk) for chunk in quantum_key_chunks)
+                    logger.info(f"  Need {remaining} more bytes, fetching another local key...")
+                    
+                    extra_key = local_km.get_local_key(required_bytes=32)
+                    if extra_key:
+                        quantum_key_chunks.append(extra_key["key_material"])
+                        key_fragments.append(extra_key["key_id"])
+                    else:
+                        logger.warning("  Local KM exhausted, switching to main KME for remaining keys...")
+                        break
+                
+                # Combine all chunks
+                combined = b"".join(quantum_key_chunks)
+                
+                # If still not enough, we need to get from main KME
+                if len(combined) < total_key_bytes:
+                    logger.info("  Local keys insufficient, supplementing with main KME...")
+                    use_local_km = "partial"  # Partial local usage
+                    
+                    km1_client, km2_client = get_optimized_km_clients()
+                    slave_sae_id = "c565d5aa-8670-4446-8471-b0e53e315d2a"
+                    remaining = total_key_bytes - len(combined)
+                    keys_needed = (remaining + 31) // 32
+                    
+                    extra_keys = await km1_client.request_enc_keys(
+                        slave_sae_id=slave_sae_id,
+                        number=keys_needed,
+                        size=256
                     )
-                return appended
-
-            logger.info(f"✓ Got {len(km1_keys)} encryption key(s) from KME1 (initial batch)")
-            initial_bytes = _append_key_batch(km1_keys)
-            if not initial_bytes:
-                raise Level1SecurityError("KM1 returned empty key material for OTP encryption")
-
-            key_id = fragment_records[0]["key_id"]
-            chunk_size_bytes = fragment_records[0]["size_bytes"] or 32
-
-            while sum(len(chunk) for chunk in quantum_key_chunks) < total_key_bytes:
-                remaining_bytes = total_key_bytes - sum(len(chunk) for chunk in quantum_key_chunks)
-                keys_needed = max(1, (remaining_bytes + key_chunk_size - 1) // key_chunk_size)
-                logger.info(
-                    "Requesting %s additional key fragment(s) to cover remaining %s bytes",
-                    keys_needed,
-                    remaining_bytes
-                )
-                additional_keys = await km1_client.request_enc_keys(
+                    
+                    if extra_keys:
+                        for key_entry in extra_keys:
+                            raw_chunk = base64.b64decode(key_entry['key'])
+                            quantum_key_chunks.append(raw_chunk)
+                            key_fragments.append(key_entry['key_ID'])
+                            # Store in local KM for future use
+                            local_km.store_key(
+                                key_id=key_entry['key_ID'],
+                                key_material=raw_chunk,
+                                source="KM1"
+                            )
+                        combined = b"".join(quantum_key_chunks)
+                
+                quantum_key_material = combined[:total_key_bytes]
+                
+            else:
+                # FALLBACK: Get keys from main KME (original path)
+                logger.info("  Local KM empty or unavailable, falling back to MAIN KME...")
+                logger.info("ETSI QKD 014: Retrieving encryption key from KM1...")
+                logger.info("  - Same key will be broadcast to KM2 (synchronized via HTTP)")
+                logger.info("  - One-time use only (no regeneration)")
+                
+                # Get optimized KM clients for Next Door Key Simulator
+                km1_client, km2_client = get_optimized_km_clients()
+            
+                # Use optimized KM client to request encryption key from KME1
+                logger.info("Requesting encryption key from KME1 via optimized client...")
+            
+                slave_sae_id = "c565d5aa-8670-4446-8471-b0e53e315d2a"  # KME2's SAE ID
+                
+                # The Next Door Key Simulator returns fixed 32-byte (256-bit) keys
+                # So we need to request enough keys to cover the total required bytes
+                key_chunk_size = 32  # 256 bits = 32 bytes per key
+                keys_needed_initial = (total_key_bytes + key_chunk_size - 1) // key_chunk_size
+                
+                logger.info(f"Total key bytes needed: {total_key_bytes}")
+                logger.info(f"Key chunk size: {key_chunk_size} bytes (256 bits)")
+                logger.info(f"Keys needed: {keys_needed_initial}")
+                
+                km1_keys = await km1_client.request_enc_keys(
                     slave_sae_id=slave_sae_id,
-                    number=keys_needed,
+                    number=keys_needed_initial,
                     size=256  # Each key is 256 bits (32 bytes)
                 )
-                if not additional_keys:
-                    break
-                _append_key_batch(additional_keys)
-                if fragment_records and fragment_records[-1]["size_bytes"]:
-                    chunk_size_bytes = fragment_records[-1]["size_bytes"]
+                
+                if not km1_keys:
+                    raise Level1SecurityError("No quantum keys available on KM1. Available: 0, Required: 1")
 
-            combined_material = b"".join(quantum_key_chunks)
-            if len(combined_material) < total_key_bytes:
-                raise Level1SecurityError(
-                    f"KM1 returned insufficient key material: {len(combined_material)} bytes, need {total_key_bytes} bytes"
-                )
+                quantum_key_chunks: List[bytes] = []
+                fragment_records: List[Dict[str, Any]] = []
 
-            quantum_key_material = combined_material[:total_key_bytes]
-            logger.info(f"✓ ETSI QKD 014: Aggregated {len(fragment_records)} fragment(s) from KM1")
-            logger.info(f"  - Primary Key ID: {key_id}")
-            logger.info(f"  - Combined Key Size: {len(quantum_key_material)} bytes ({len(quantum_key_material) * 8} bits)")
-            logger.info(f"  - SAE1 ID: 25840139-0dd4-49ae-ba1e-b86731601803")
-            logger.info(f"  - SAE2 ID: c565d5aa-8670-4446-8471-b0e53e315d2a")
-            logger.info(f"  - Synchronized: Key broadcast to KM2")
-            key_fragments = [fragment["key_id"] for fragment in fragment_records]
+                def _append_key_batch(keys_batch):
+                    appended = 0
+                    for key_entry in keys_batch:
+                        raw_chunk = base64.b64decode(key_entry['key'])
+                        if not raw_chunk:
+                            logger.warning("Received empty key chunk from KM1 for ID %s", key_entry.get('key_ID'))
+                            continue
+                        quantum_key_chunks.append(raw_chunk)
+                        fragment_records.append({
+                            "key_id": key_entry['key_ID'],
+                            "size_bytes": len(raw_chunk)
+                        })
+                        # Store key in Local KM for future use
+                        local_km.store_key(
+                            key_id=key_entry['key_ID'],
+                            key_material=raw_chunk,
+                            source="KM1",
+                            metadata={"flow_id": flow_id, "auto_cached": True}
+                        )
+                        appended += len(raw_chunk)
+                        logger.info(
+                            "  - Fragment %s | ID=%s | %s bytes (stored in Local KM)",
+                            len(fragment_records),
+                            key_entry['key_ID'],
+                            len(raw_chunk)
+                        )
+                    return appended
+
+                logger.info(f"✓ Got {len(km1_keys)} encryption key(s) from KME1 (initial batch)")
+                initial_bytes = _append_key_batch(km1_keys)
+                if not initial_bytes:
+                    raise Level1SecurityError("KM1 returned empty key material for OTP encryption")
+
+                key_id = fragment_records[0]["key_id"]
+                chunk_size_bytes = fragment_records[0]["size_bytes"] or 32
+
+                while sum(len(chunk) for chunk in quantum_key_chunks) < total_key_bytes:
+                    remaining_bytes = total_key_bytes - sum(len(chunk) for chunk in quantum_key_chunks)
+                    keys_needed = max(1, (remaining_bytes + key_chunk_size - 1) // key_chunk_size)
+                    logger.info(
+                        "Requesting %s additional key fragment(s) to cover remaining %s bytes",
+                        keys_needed,
+                        remaining_bytes
+                    )
+                    additional_keys = await km1_client.request_enc_keys(
+                        slave_sae_id=slave_sae_id,
+                        number=keys_needed,
+                        size=256  # Each key is 256 bits (32 bytes)
+                    )
+                    if not additional_keys:
+                        break
+                    _append_key_batch(additional_keys)
+                    if fragment_records and fragment_records[-1]["size_bytes"]:
+                        chunk_size_bytes = fragment_records[-1]["size_bytes"]
+
+                combined_material = b"".join(quantum_key_chunks)
+                if len(combined_material) < total_key_bytes:
+                    raise Level1SecurityError(
+                        f"KM1 returned insufficient key material: {len(combined_material)} bytes, need {total_key_bytes} bytes"
+                    )
+
+                quantum_key_material = combined_material[:total_key_bytes]
+                logger.info(f"✓ ETSI QKD 014: Aggregated {len(fragment_records)} fragment(s) from KM1")
+                logger.info(f"  - Primary Key ID: {key_id}")
+                logger.info(f"  - Combined Key Size: {len(quantum_key_material)} bytes ({len(quantum_key_material) * 8} bits)")
+                logger.info(f"  - SAE1 ID: 25840139-0dd4-49ae-ba1e-b86731601803")
+                logger.info(f"  - SAE2 ID: c565d5aa-8670-4446-8471-b0e53e315d2a")
+                logger.info(f"  - Synchronized: Key broadcast to KM2")
+                logger.info(f"  - Stored in Local KM: YES (for decryption)")
+                key_fragments = [fragment["key_id"] for fragment in fragment_records]
         
         # SPLIT KEY ARCHITECTURE
         # First L bytes for OTP, last 32 bytes for HMAC
@@ -364,88 +460,147 @@ async def decrypt_otp(encrypted_content: str, user_email: str, metadata: Dict[st
             logger.error("ERROR - Missing key identifiers in decryption metadata")
             raise Level1SecurityError("Missing key identifiers in metadata - cannot decrypt")
 
-        # PRODUCTION PATH: Prefer retrieving quantum key from KME2, fall back to KM1 shared pool if needed
-        logger.info("KME2 PATH: Attempting to retrieve decryption key from KME2 (receiver-side cache)...")
+        # FIRST: Try to get keys from LOCAL KEY MANAGER (fastest path)
+        logger.info("LOCAL KM PATH: Attempting to retrieve decryption key from Local Key Manager...")
         
-        # Get optimized KM clients for Next Door Key Simulator
-        km1_client, km2_client = get_optimized_km_clients()
-        retrieved_keys = []
-        try:
-            if km2_client is None:
-                logger.warning("KME2 PATH: km2_client not initialized, skipping direct retrieval")
+        local_km = get_local_key_manager()
+        local_keys_found = []
+        
+        for kid in requested_key_ids:
+            local_key_data = local_km.get_key_by_id(kid)
+            if local_key_data:
+                local_keys_found.append({
+                    'key_ID': kid,
+                    'key': base64.b64encode(local_key_data['key_material']).decode('utf-8')
+                })
+                logger.info(f"  ✓ Found key {kid[:16]}... in Local KM")
             else:
-                retrieved_keys = await km2_client.request_dec_keys(
-                    master_sae_id=KM1_MASTER_SAE_ID,
-                    key_ids=requested_key_ids
-                )
-                if retrieved_keys:
-                    logger.info(
-                        "KME2 PATH: Retrieved %s/%s key fragment(s) from KME2",
-                        len(retrieved_keys),
-                        len(requested_key_ids)
-                    )
-        except AuthenticationError as auth_error:
-            logger.error(f"KME2 PATH: Authentication failed retrieving key fragment(s): {auth_error}")
-        except KMConnectionError as conn_error:
-            logger.error(f"KME2 PATH: Connection error retrieving key fragment(s): {conn_error}")
-        except SecurityError as sec_error:
-            logger.warning(f"KME2 PATH: Security error retrieving key fragment(s): {sec_error}")
-        except Exception as e:
-            logger.error(f"KME2 PATH: Unexpected exception retrieving key fragment(s): {e}")
+                logger.info(f"  ✗ Key {kid[:16]}... not in Local KM")
         
-        if not retrieved_keys or len(retrieved_keys) < len(requested_key_ids):
-            logger.info("FALLBACK PATH: KME2 retrieval incomplete. Checking KM1 shared pool...")
-            try:
-                if km1_client is None:
-                    raise Level1SecurityError("KM1 client not initialized; cannot access shared pool")
-                retrieved_keys = await km1_client.request_dec_keys(
-                    master_sae_id=KM1_MASTER_SAE_ID,
-                    key_ids=requested_key_ids
-                )
-                if retrieved_keys:
-                    logger.info(
-                        "SHARED POOL: Retrieved %s/%s key fragment(s) from KM1",
-                        len(retrieved_keys),
-                        len(requested_key_ids)
-                    )
-            except AuthenticationError as auth_error:
-                logger.error(f"SHARED POOL: Authentication failed retrieving key fragment(s): {auth_error}")
-                raise Level1SecurityError("KME authentication failed while retrieving shared key")
-            except KMConnectionError as conn_error:
-                logger.error(f"SHARED POOL: Connection error retrieving key fragment(s): {conn_error}")
-                raise Level1SecurityError("Unable to reach KM shared pool for key retrieval")
-            except SecurityError as sec_error:
-                logger.error(f"SHARED POOL: Security error retrieving key fragment(s): {sec_error}")
-                raise Level1SecurityError("Failed to retrieve quantum key fragments from shared pool")
-            except Exception as e:
-                logger.error(f"SHARED POOL: Unexpected exception retrieving key fragment(s): {e}")
-                raise Level1SecurityError(f"Failed to retrieve quantum key fragments from shared pool: {e}")
-        
-        if not retrieved_keys:
-            logger.error("KME RETRIEVAL: No KMEs returned the requested key fragments")
-            raise Level1SecurityError("Quantum key fragments not found on KME2 or KM1 shared pool")
-        
-        key_lookup = {}
-        for entry in retrieved_keys:
-            kid = str(entry.get('key_ID'))
-            if not kid:
-                continue
-            try:
+        if len(local_keys_found) == len(requested_key_ids):
+            # All keys found in Local KM!
+            logger.info("="*60)
+            logger.info("✓ ALL KEYS FOUND IN LOCAL KEY MANAGER")
+            logger.info(f"  Keys retrieved: {len(local_keys_found)}")
+            logger.info("="*60)
+            
+            # Build key material from local keys
+            key_lookup = {}
+            for entry in local_keys_found:
+                kid = str(entry.get('key_ID'))
                 key_lookup[kid] = base64.b64decode(entry.get('key', ''))
-            except Exception:
-                logger.warning("Failed to decode key fragment %s", kid, exc_info=True)
+                # Mark as consumed in local storage
+                local_km.consume_key(kid)
+            
+            quantum_key_material = b"".join(key_lookup[kid] for kid in requested_key_ids)
+            
+        else:
+            # Not all keys in Local KM, try KME servers
+            logger.info(f"LOCAL KM: Found {len(local_keys_found)}/{len(requested_key_ids)} keys locally")
+            logger.info("FALLBACK: Attempting to retrieve remaining keys from KME servers...")
+            
+            # PRODUCTION PATH: Prefer retrieving quantum key from KME2, fall back to KM1 shared pool if needed
+            logger.info("KME2 PATH: Attempting to retrieve decryption key from KME2 (receiver-side cache)...")
+            
+            # Get optimized KM clients for Next Door Key Simulator
+            km1_client, km2_client = get_optimized_km_clients()
+            retrieved_keys = []
+            try:
+                if km2_client is None:
+                    logger.warning("KME2 PATH: km2_client not initialized, skipping direct retrieval")
+                else:
+                    retrieved_keys = await km2_client.request_dec_keys(
+                        master_sae_id=KM1_MASTER_SAE_ID,
+                        key_ids=requested_key_ids
+                    )
+                    if retrieved_keys:
+                        logger.info(
+                            "KME2 PATH: Retrieved %s/%s key fragment(s) from KME2",
+                            len(retrieved_keys),
+                            len(requested_key_ids)
+                        )
+                        # Store retrieved keys in Local KM for future use
+                        for entry in retrieved_keys:
+                            kid = entry.get('key_ID')
+                            raw_key = base64.b64decode(entry.get('key', ''))
+                            if kid and raw_key:
+                                local_km.store_key(
+                                    key_id=kid,
+                                    key_material=raw_key,
+                                    source="KM2",
+                                    metadata={"flow_id": flow_id, "cached_on_decrypt": True}
+                                )
+            except AuthenticationError as auth_error:
+                logger.error(f"KME2 PATH: Authentication failed retrieving key fragment(s): {auth_error}")
+            except KMConnectionError as conn_error:
+                logger.error(f"KME2 PATH: Connection error retrieving key fragment(s): {conn_error}")
+            except SecurityError as sec_error:
+                logger.warning(f"KME2 PATH: Security error retrieving key fragment(s): {sec_error}")
+            except Exception as e:
+                logger.error(f"KME2 PATH: Unexpected exception retrieving key fragment(s): {e}")
+            
+            if not retrieved_keys or len(retrieved_keys) < len(requested_key_ids):
+                logger.info("FALLBACK PATH: KME2 retrieval incomplete. Checking KM1 shared pool...")
+                try:
+                    if km1_client is None:
+                        raise Level1SecurityError("KM1 client not initialized; cannot access shared pool")
+                    retrieved_keys = await km1_client.request_dec_keys(
+                        master_sae_id=KM1_MASTER_SAE_ID,
+                        key_ids=requested_key_ids
+                    )
+                    if retrieved_keys:
+                        logger.info(
+                            "SHARED POOL: Retrieved %s/%s key fragment(s) from KM1",
+                            len(retrieved_keys),
+                            len(requested_key_ids)
+                        )
+                        # Store retrieved keys in Local KM
+                        for entry in retrieved_keys:
+                            kid = entry.get('key_ID')
+                            raw_key = base64.b64decode(entry.get('key', ''))
+                            if kid and raw_key:
+                                local_km.store_key(
+                                    key_id=kid,
+                                    key_material=raw_key,
+                                    source="KM1",
+                                    metadata={"flow_id": flow_id, "cached_on_decrypt": True}
+                                )
+                except AuthenticationError as auth_error:
+                    logger.error(f"SHARED POOL: Authentication failed retrieving key fragment(s): {auth_error}")
+                    raise Level1SecurityError("KME authentication failed while retrieving shared key")
+                except KMConnectionError as conn_error:
+                    logger.error(f"SHARED POOL: Connection error retrieving key fragment(s): {conn_error}")
+                    raise Level1SecurityError("Unable to reach KM shared pool for key retrieval")
+                except SecurityError as sec_error:
+                    logger.error(f"SHARED POOL: Security error retrieving key fragment(s): {sec_error}")
+                    raise Level1SecurityError("Failed to retrieve quantum key fragments from shared pool")
+                except Exception as e:
+                    logger.error(f"SHARED POOL: Unexpected exception retrieving key fragment(s): {e}")
+                    raise Level1SecurityError(f"Failed to retrieve quantum key fragments from shared pool: {e}")
+            
+            if not retrieved_keys:
+                logger.error("KME RETRIEVAL: No KMEs returned the requested key fragments")
+                raise Level1SecurityError("Quantum key fragments not found on KME2 or KM1 shared pool")
+            
+            key_lookup = {}
+            for entry in retrieved_keys:
+                kid = str(entry.get('key_ID'))
+                if not kid:
+                    continue
+                try:
+                    key_lookup[kid] = base64.b64decode(entry.get('key', ''))
+                except Exception:
+                    logger.warning("Failed to decode key fragment %s", kid, exc_info=True)
 
-        missing_fragments = [kid for kid in requested_key_ids if kid not in key_lookup or not key_lookup[kid]]
-        if missing_fragments:
-            raise Level1SecurityError(f"Missing quantum key fragment(s): {missing_fragments}")
+            missing_fragments = [kid for kid in requested_key_ids if kid not in key_lookup or not key_lookup[kid]]
+            if missing_fragments:
+                raise Level1SecurityError(f"Missing quantum key fragment(s): {missing_fragments}")
 
-        quantum_key_material = b"".join(key_lookup[kid] for kid in requested_key_ids)
+            quantum_key_material = b"".join(key_lookup[kid] for kid in requested_key_ids)
         
-        logger.info("✓ SHARED POOL: Decryption key fragments assembled from KM shared pool")
+        logger.info("✓ Decryption key fragments assembled")
         logger.info(f"  - Fragment Count: {len(requested_key_ids)}")
         logger.info(f"  - Combined Key Size: {len(quantum_key_material)} bytes")
-        logger.info(f"  - Shared Pool: YES (same key from KM1 as encryption)")
-        logger.info(f"  - Status: USED (will be marked consumed in shared pool)")
         logger.info(f"  - First 16 bytes: {quantum_key_material[:16].hex()}")
 
         # encrypted_bytes already decoded at start of function

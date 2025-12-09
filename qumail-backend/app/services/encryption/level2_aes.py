@@ -11,6 +11,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from app.services.km_client_init import get_optimized_km_clients
 from app.services.exceptions import InsufficientKeysError, SecurityError
 from app.services.optimized_km_client import AuthenticationError, KMConnectionError
+# Local Key Manager for local key caching and fast retrieval
+from app.services.local_key_manager import get_local_key_manager
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ async def encrypt_aes(content: str, user_email: str) -> Dict[str, Any]:
     Security Features:
     - AES-256-GCM authenticated encryption
     - Quantum key derivation using HKDF
-    - Keys from both KM servers combined
+    - Keys from LOCAL KEY MANAGER (with fallback to main KME)
     - Digital signature for authenticity
     - Nonce-based security
     """
@@ -35,38 +37,77 @@ async def encrypt_aes(content: str, user_email: str) -> Dict[str, Any]:
         plaintext = content.encode('utf-8')
         flow_id = secrets.token_hex(16)
         
-        # Step 1: Request quantum keys from both KM servers
-        logger.info(f"Requesting quantum keys for AES encryption from Next Door Key Simulator, flow {flow_id}")
+        logger.info(f"Level 2 AES encryption starting, flow {flow_id}")
         
-        # Get optimized KM clients for Next Door Key Simulator
-        km1_client, km2_client = get_optimized_km_clients()
+        # Initialize Local Key Manager
+        local_km = get_local_key_manager()
+        local_km_stats = local_km.get_key_statistics()
         
-        # Skip status check - keys are exchanged on first request, not pre-exchanged
-        # The simulator will handle key availability when we request them
-        logger.info(f"Requesting 2 quantum keys from KME1 (Master generates all keys)")
+        logger.info(f"  Local KM Status: {local_km_stats['available_keys']} keys available")
         
-        # Request TWO 256-bit keys from KME1 (Master) - both will be broadcast to KME2
-        # This ensures both keys are available for decryption
-        km1_keys = await km1_client.request_enc_keys(
-            slave_sae_id="c565d5aa-8670-4446-8471-b0e53e315d2a", 
-            number=2,  # Request 2 keys at once
-            size=256
-        )
+        km1_key_data = None
+        km2_key_data = None
+        km1_key_id = None
+        km2_key_id = None
+        use_local_km = False
         
-        if not km1_keys or len(km1_keys) < 2:
-            raise Level2SecurityError(f"Failed to retrieve 2 quantum keys for AES encryption (got {len(km1_keys) if km1_keys else 0})")
+        # Try Local Key Manager first
+        if local_km_stats['available_keys'] >= 2:
+            logger.info("  Attempting to use LOCAL KEY MANAGER for AES keys...")
+            try:
+                local_key1 = local_km.get_local_key(required_bytes=32)
+                local_key2 = local_km.get_local_key(required_bytes=32)
+                
+                if local_key1 and local_key2:
+                    use_local_km = True
+                    km1_key_data = local_key1["key_material"]
+                    km2_key_data = local_key2["key_material"]
+                    km1_key_id = local_key1["key_id"]
+                    km2_key_id = local_key2["key_id"]
+                    
+                    logger.info("="*60)
+                    logger.info("✓ USING KEYS FROM LOCAL KEY MANAGER")
+                    logger.info(f"  Key 1: {km1_key_id[:16]}...")
+                    logger.info(f"  Key 2: {km2_key_id[:16]}...")
+                    logger.info("="*60)
+            except Exception as e:
+                logger.warning(f"  Local KM retrieval failed: {e}")
         
-        # Step 2: Extract and combine quantum keys
-        km1_key_data = base64.b64decode(km1_keys[0]['key'])
-        km2_key_data = base64.b64decode(km1_keys[1]['key'])
-        km1_key_id = km1_keys[0]['key_ID']
-        km2_key_id = km1_keys[1]['key_ID']
+        # Fallback to main KME if Local KM doesn't have enough keys
+        if not use_local_km:
+            logger.info("  Local KM unavailable, falling back to MAIN KME...")
+            
+            # Get optimized KM clients for Next Door Key Simulator
+            km1_client, km2_client = get_optimized_km_clients()
+            
+            # Request TWO 256-bit keys from KME1 (Master)
+            km1_keys = await km1_client.request_enc_keys(
+                slave_sae_id="c565d5aa-8670-4446-8471-b0e53e315d2a", 
+                number=2,
+                size=256
+            )
+            
+            if not km1_keys or len(km1_keys) < 2:
+                raise Level2SecurityError(f"Failed to retrieve 2 quantum keys for AES encryption (got {len(km1_keys) if km1_keys else 0})")
+            
+            km1_key_data = base64.b64decode(km1_keys[0]['key'])
+            km2_key_data = base64.b64decode(km1_keys[1]['key'])
+            km1_key_id = km1_keys[0]['key_ID']
+            km2_key_id = km1_keys[1]['key_ID']
+            
+            # Store fetched keys in Local KM for future use
+            local_km.store_key(key_id=km1_key_id, key_material=km1_key_data, source="KM1", 
+                             metadata={"flow_id": flow_id, "level": 2})
+            local_km.store_key(key_id=km2_key_id, key_material=km2_key_data, source="KM1",
+                             metadata={"flow_id": flow_id, "level": 2})
+            
+            logger.info(f"  Retrieved 2 quantum keys from MAIN KME and stored in Local KM")
         
         # Verify key sizes
         if len(km1_key_data) != 32 or len(km2_key_data) != 32:
             raise Level2SecurityError(f"Invalid quantum key size for AES encryption: {len(km1_key_data)}, {len(km2_key_data)} bytes")
         
-        logger.info(f"Retrieved 2 quantum keys from KME1: {km1_key_id}, {km2_key_id}")
+        logger.info(f"Retrieved 2 quantum keys: {km1_key_id[:16]}..., {km2_key_id[:16]}...")
         
         # Step 3: Derive AES key using HKDF with quantum material
         ikm = km1_key_data + km2_key_data  # 64 bytes of quantum entropy
@@ -166,42 +207,77 @@ async def decrypt_aes(encrypted_content: str, user_email: str, metadata: Dict[st
             ciphertext_with_tag = ciphertext_only
 
         # Step 3: Retrieve quantum keys using key IDs
-        logger.info(f"SHARED POOL: Retrieving 2 quantum keys from KM1 shared pool, flow {flow_id}")
+        logger.info(f"Retrieving quantum keys for decryption, flow {flow_id}")
         
-        # Get optimized KM clients for Next Door Key Simulator
-        _, km2_client = get_optimized_km_clients()
-        logger.info("SHARED POOL: Fetching AES key material via KM2 optimized client")
+        # Initialize Local Key Manager
+        local_km = get_local_key_manager()
         
-        km2_keys = []
-        try:
-            km2_keys = await km2_client.request_dec_keys(
-                master_sae_id=KM1_MASTER_SAE_ID,
-                key_ids=[key_ids["km1"], key_ids["km2"]]
-            )
-            logger.info(f"SHARED POOL: Retrieved {len(km2_keys)} keys from KM shared pool")
-        except AuthenticationError as auth_error:
-            raise Level2SecurityError(f"KM authentication failed while retrieving AES keys: {auth_error}")
-        except KMConnectionError as conn_error:
-            raise Level2SecurityError(f"Unable to reach KM shared pool: {conn_error}")
-        except Exception as e:
-            raise Level2SecurityError(f"Failed to retrieve quantum keys from shared pool: {e}")
+        # Try Local KM first for decryption keys
+        km1_key_data = None
+        km2_key_data = None
+        use_local_km = False
         
-        if not km2_keys or len(km2_keys) < 2:
-            raise Level2SecurityError(
-                f"One or more key IDs not found in shared pool - possible tampering (got {len(km2_keys) if km2_keys else 0}/2 keys)"
-            )
+        local_key1 = local_km.get_key_by_id(key_ids["km1"])
+        local_key2 = local_km.get_key_by_id(key_ids["km2"])
         
-        # Step 4: Reconstruct key material
-        # Find the keys by their IDs (order might not be preserved)
-        key_dict = {k['key_ID']: base64.b64decode(k['key']) for k in km2_keys}
+        if local_key1 and local_key2:
+            use_local_km = True
+            km1_key_data = local_key1["key_material"]
+            km2_key_data = local_key2["key_material"]
+            
+            # Mark as consumed
+            local_km.consume_key(key_ids["km1"])
+            local_km.consume_key(key_ids["km2"])
+            
+            logger.info("="*60)
+            logger.info("✓ DECRYPTION KEYS FOUND IN LOCAL KEY MANAGER")
+            logger.info(f"  Key 1: {key_ids['km1'][:16]}...")
+            logger.info(f"  Key 2: {key_ids['km2'][:16]}...")
+            logger.info("="*60)
         
-        km1_key_data = key_dict.get(key_ids["km1"])
-        km2_key_data = key_dict.get(key_ids["km2"])
+        # Fallback to main KME if keys not in Local KM
+        if not use_local_km:
+            logger.info("  Keys not in Local KM, fetching from MAIN KME...")
+            
+            # Get optimized KM clients for Next Door Key Simulator
+            _, km2_client = get_optimized_km_clients()
+            
+            km2_keys = []
+            try:
+                km2_keys = await km2_client.request_dec_keys(
+                    master_sae_id=KM1_MASTER_SAE_ID,
+                    key_ids=[key_ids["km1"], key_ids["km2"]]
+                )
+                logger.info(f"  Retrieved {len(km2_keys)} keys from MAIN KME")
+                
+                # Store retrieved keys in Local KM for future use
+                for entry in km2_keys:
+                    kid = entry.get('key_ID')
+                    raw_key = base64.b64decode(entry.get('key', ''))
+                    if kid and raw_key:
+                        local_km.store_key(key_id=kid, key_material=raw_key, source="KM2",
+                                         metadata={"flow_id": flow_id, "level": 2})
+            except AuthenticationError as auth_error:
+                raise Level2SecurityError(f"KM authentication failed while retrieving AES keys: {auth_error}")
+            except KMConnectionError as conn_error:
+                raise Level2SecurityError(f"Unable to reach KM shared pool: {conn_error}")
+            except Exception as e:
+                raise Level2SecurityError(f"Failed to retrieve quantum keys from shared pool: {e}")
+            
+            if not km2_keys or len(km2_keys) < 2:
+                raise Level2SecurityError(
+                    f"One or more key IDs not found in shared pool - possible tampering (got {len(km2_keys) if km2_keys else 0}/2 keys)"
+                )
+            
+            # Step 4: Reconstruct key material
+            key_dict = {k['key_ID']: base64.b64decode(k['key']) for k in km2_keys}
+            km1_key_data = key_dict.get(key_ids["km1"])
+            km2_key_data = key_dict.get(key_ids["km2"])
         
         if not km1_key_data or not km2_key_data:
             raise Level2SecurityError("One or more key IDs not found in retrieved keys - possible tampering")
         
-        logger.info(f"Successfully retrieved both keys: {key_ids['km1']}, {key_ids['km2']}")
+        logger.info(f"Successfully retrieved both keys: {key_ids['km1'][:16]}..., {key_ids['km2'][:16]}...")
         
         # Step 5: Derive AES key (same process as encryption)
         ikm = km1_key_data + km2_key_data

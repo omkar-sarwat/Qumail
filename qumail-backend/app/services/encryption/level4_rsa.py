@@ -14,11 +14,13 @@ try:
     from ..km_client_init import get_optimized_km_clients
     from ..exceptions import Level4SecurityError, InsufficientKeysError
     from ..local_private_key_store import local_private_key_store
+    from ..local_key_manager import get_local_key_manager
 except ImportError:
     # Fall back to absolute imports (helps Pylance/IDE)
     from app.services.km_client_init import get_optimized_km_clients
     from app.services.exceptions import Level4SecurityError, InsufficientKeysError
     from app.services.local_private_key_store import local_private_key_store
+    from app.services.local_key_manager import get_local_key_manager
 
 logger = logging.getLogger(__name__)
 

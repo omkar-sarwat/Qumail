@@ -23,12 +23,14 @@ try:
     from ..exceptions import Level3SecurityError, InsufficientKeysError
     from ..optimized_km_client import AuthenticationError, KMConnectionError
     from ..local_private_key_store import local_private_key_store
+    from ..local_key_manager import get_local_key_manager
 except ImportError:
     # Fall back to absolute imports (helps Pylance/IDE)
     from app.services.km_client_init import get_optimized_km_clients
     from app.services.exceptions import Level3SecurityError, InsufficientKeysError
     from app.services.optimized_km_client import AuthenticationError, KMConnectionError
     from app.services.local_private_key_store import local_private_key_store
+    from app.services.local_key_manager import get_local_key_manager
 
 logger = logging.getLogger(__name__)
 
@@ -257,35 +259,73 @@ async def encrypt_pqc(content: str, user_email: str) -> Dict[str, Any]:
         dsa_secret_key, dsa_public_key = MLDSA.generate_keypair()
         logger.info(f"   ✓ Generated ML-DSA-87 keypair")
         
-        # Step 3: Request quantum keys for enhancement (optional)
+        # Step 3: Request quantum keys for enhancement (optional) - LOCAL KM FIRST
         quantum_enhancement = {"enabled": False}
         try:
-            km1_client, km2_client = get_optimized_km_clients()
+            # Initialize Local Key Manager
+            local_km = get_local_key_manager()
+            local_km_stats = local_km.get_key_statistics()
             
-            km1_keys = await km1_client.request_enc_keys(
-                slave_sae_id=KM2_SLAVE_SAE_ID,
-                number=1, 
-                size=128
-            )
-            km2_keys = await km2_client.request_enc_keys(
-                slave_sae_id=KM1_MASTER_SAE_ID,
-                number=1, 
-                size=128
-            )
+            logger.info(f"   Local KM Status: {local_km_stats['available_keys']} keys available")
             
-            if km1_keys and km2_keys:
-                km1_key_data = base64.b64decode(km1_keys[0]['key'])
-                km2_key_data = base64.b64decode(km2_keys[0]['key'])
+            km1_key_data = None
+            km2_key_data = None
+            km1_key_id = None
+            km2_key_id = None
+            use_local_km = False
+            
+            # Try Local KM first
+            if local_km_stats['available_keys'] >= 2:
+                local_key1 = local_km.get_local_key(required_bytes=16)
+                local_key2 = local_km.get_local_key(required_bytes=16)
                 
+                if local_key1 and local_key2:
+                    use_local_km = True
+                    km1_key_data = local_key1["key_material"][:16]  # Use 16 bytes for enhancement
+                    km2_key_data = local_key2["key_material"][:16]
+                    km1_key_id = local_key1["key_id"]
+                    km2_key_id = local_key2["key_id"]
+                    
+                    logger.info(f"   ✓ Quantum enhancement keys from LOCAL KM")
+            
+            # Fallback to main KME
+            if not use_local_km:
+                logger.info(f"   Fetching quantum enhancement keys from MAIN KME...")
+                km1_client, km2_client = get_optimized_km_clients()
+                
+                km1_keys = await km1_client.request_enc_keys(
+                    slave_sae_id=KM2_SLAVE_SAE_ID,
+                    number=1, 
+                    size=128
+                )
+                km2_keys = await km2_client.request_enc_keys(
+                    slave_sae_id=KM1_MASTER_SAE_ID,
+                    number=1, 
+                    size=128
+                )
+                
+                if km1_keys and km2_keys:
+                    km1_key_data = base64.b64decode(km1_keys[0]['key'])
+                    km2_key_data = base64.b64decode(km2_keys[0]['key'])
+                    km1_key_id = km1_keys[0]['key_ID']
+                    km2_key_id = km2_keys[0]['key_ID']
+                    
+                    # Store in Local KM for future use
+                    local_km.store_key(key_id=km1_key_id, key_material=km1_key_data, source="KM1",
+                                     metadata={"flow_id": flow_id, "level": 3})
+                    local_km.store_key(key_id=km2_key_id, key_material=km2_key_data, source="KM2",
+                                     metadata={"flow_id": flow_id, "level": 3})
+            
+            if km1_key_data and km2_key_data:
                 quantum_enhancement = {
                     "enabled": True,
                     "key_ids": {
-                        "km1": km1_keys[0]['key_ID'],
-                        "km2": km2_keys[0]['key_ID']
+                        "km1": km1_key_id,
+                        "km2": km2_key_id
                     },
                     "enhancement_material": km1_key_data + km2_key_data
                 }
-                logger.info(f"   ✓ Quantum enhancement enabled")
+                logger.info(f"   ✓ Quantum enhancement enabled (Local KM: {use_local_km})")
         except Exception as e:
             logger.warning(f"   ⚠️ Quantum enhancement unavailable: {e}")
         
@@ -466,7 +506,7 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
         kem_shared_secret = MLKEM.decapsulate(kem_secret_key, kem_ciphertext)
         logger.info(f"   ✓ ML-KEM-1024 decapsulation complete")
         
-        # Step 4: Retrieve quantum enhancement if enabled
+        # Step 4: Retrieve quantum enhancement if enabled - LOCAL KM FIRST
         enhancement_material = b""
         quantum_enhanced_actual = False
         
@@ -475,25 +515,50 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
             logger.info(f"   Retrieving quantum enhancement keys: {key_ids}")
             
             try:
-                _, km2_client = get_optimized_km_clients()
-                km_keys = await km2_client.request_dec_keys(
-                    master_sae_id=KM1_MASTER_SAE_ID,
-                    key_ids=[key_ids["km1"], key_ids["km2"]]
-                )
+                # Initialize Local Key Manager
+                local_km = get_local_key_manager()
                 
-                if km_keys and len(km_keys) >= 2:
-                    key_dict = {k['key_ID']: base64.b64decode(k['key']) for k in km_keys}
-                    km1_key_data = key_dict.get(key_ids["km1"])
-                    km2_key_data = key_dict.get(key_ids["km2"])
+                # Try Local KM first
+                local_key1 = local_km.get_key_by_id(key_ids["km1"]) if key_ids.get("km1") else None
+                local_key2 = local_km.get_key_by_id(key_ids["km2"]) if key_ids.get("km2") else None
+                
+                if local_key1 and local_key2:
+                    km1_key_data = local_key1["key_material"]
+                    km2_key_data = local_key2["key_material"]
                     
-                    if km1_key_data and km2_key_data:
-                        enhancement_material = km1_key_data + km2_key_data
-                        quantum_enhanced_actual = True
-                        logger.info(f"   ✓ Quantum enhancement keys retrieved")
-                    else:
-                        logger.warning(f"   ⚠️ Quantum keys missing - continuing WITHOUT enhancement")
+                    # Mark as consumed
+                    local_km.consume_key(key_ids["km1"])
+                    local_km.consume_key(key_ids["km2"])
+                    
+                    enhancement_material = km1_key_data + km2_key_data
+                    quantum_enhanced_actual = True
+                    logger.info(f"   ✓ Quantum enhancement keys from LOCAL KM")
                 else:
-                    logger.warning(f"   ⚠️ Insufficient quantum keys - continuing WITHOUT enhancement")
+                    # Fallback to main KME
+                    logger.info(f"   Keys not in Local KM, fetching from MAIN KME...")
+                    _, km2_client = get_optimized_km_clients()
+                    km_keys = await km2_client.request_dec_keys(
+                        master_sae_id=KM1_MASTER_SAE_ID,
+                        key_ids=[key_ids["km1"], key_ids["km2"]]
+                    )
+                    
+                    if km_keys and len(km_keys) >= 2:
+                        key_dict = {k['key_ID']: base64.b64decode(k['key']) for k in km_keys}
+                        km1_key_data = key_dict.get(key_ids["km1"])
+                        km2_key_data = key_dict.get(key_ids["km2"])
+                        
+                        if km1_key_data and km2_key_data:
+                            enhancement_material = km1_key_data + km2_key_data
+                            quantum_enhanced_actual = True
+                            logger.info(f"   ✓ Quantum enhancement keys retrieved from MAIN KME")
+                            
+                            # Store in Local KM
+                            local_km.store_key(key_id=key_ids["km1"], key_material=km1_key_data, source="KM2")
+                            local_km.store_key(key_id=key_ids["km2"], key_material=km2_key_data, source="KM2")
+                        else:
+                            logger.warning(f"   ⚠️ Quantum keys missing - continuing WITHOUT enhancement")
+                    else:
+                        logger.warning(f"   ⚠️ Insufficient quantum keys - continuing WITHOUT enhancement")
                     
             except (AuthenticationError, KMConnectionError) as e:
                 logger.warning(f"   ⚠️ KME unavailable during decryption: {e} - continuing WITHOUT enhancement")

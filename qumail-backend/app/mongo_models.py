@@ -19,6 +19,10 @@ class UserDocument(BaseModel):
     oauth_refresh_token: Optional[str] = None
     oauth_token_expiry: Optional[datetime] = None
     session_token: Optional[str] = None
+    # Yahoo OAuth tokens
+    yahoo_tokens: Optional[Dict[str, Any]] = None  # {access_token, refresh_token, expires_at, email}
+    # Microsoft OAuth tokens  
+    microsoft_tokens: Optional[Dict[str, Any]] = None  # {access_token, refresh_token, expires_at, email}
     # TOTP 2FA fields
     totp_secret: Optional[str] = None  # Encrypted TOTP secret for Google Authenticator
     totp_enabled: bool = False  # Whether 2FA is enabled

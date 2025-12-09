@@ -1063,6 +1063,302 @@ class ApiService {
     })
     return response.data
   }
+
+  // ==================== Microsoft OAuth API ====================
+
+  // Check if Microsoft OAuth is configured
+  async checkMicrosoftOAuthStatus(): Promise<{ configured: boolean; message: string }> {
+    const response = await this.api.get(this.withPrefix('/auth/microsoft/status'))
+    return response.data
+  }
+
+  // Get Microsoft OAuth authorization URL
+  async getMicrosoftAuthUrl(isElectron: boolean = false): Promise<{ authorization_url: string; state: string }> {
+    const response = await this.api.get(this.withPrefix('/auth/microsoft/login'), {
+      params: { is_electron: isElectron }
+    })
+    return response.data
+  }
+
+  // Exchange Microsoft OAuth code for tokens
+  async exchangeMicrosoftCode(code: string, state: string): Promise<{
+    success: boolean
+    user_email: string
+    display_name: string
+    session_token: string
+    expires_at: string
+    provider: string
+    message: string
+  }> {
+    const response = await this.api.get(this.withPrefix('/auth/microsoft/callback'), {
+      params: { code, state }
+    })
+    return response.data
+  }
+
+  // Fetch emails via Microsoft Graph API
+  async fetchMicrosoftEmails(
+    userEmail: string,
+    options: {
+      folder?: string
+      maxResults?: number
+      skip?: number
+      unreadOnly?: boolean
+    } = {}
+  ): Promise<{
+    success: boolean
+    emails: Array<{
+      id: string
+      message_id: string
+      thread_id: string
+      subject: string
+      from_address: string
+      from_name: string
+      to_address: string
+      to_name: string
+      cc_address: string | null
+      body_text: string
+      body_html: string | null
+      date: string
+      is_read: boolean
+      has_attachments: boolean
+      folder: string
+      importance: string
+    }>
+    count: number
+    message: string
+  }> {
+    const response = await this.api.get(this.withPrefix('/microsoft/emails'), {
+      params: {
+        user_email: userEmail,
+        folder: options.folder || 'inbox',
+        max_results: options.maxResults || 50,
+        skip: options.skip || 0,
+        unread_only: options.unreadOnly || false,
+      }
+    })
+    return response.data
+  }
+
+  // Send email via Microsoft Graph API
+  async sendMicrosoftEmail(
+    userEmail: string,
+    emailData: {
+      to_address: string
+      subject: string
+      body_text: string
+      body_html?: string
+      cc_address?: string
+      bcc_address?: string
+    }
+  ): Promise<{ success: boolean; message_id: string | null; message: string }> {
+    const response = await this.api.post(this.withPrefix('/microsoft/send'), {
+      user_email: userEmail,
+      ...emailData,
+    })
+    return response.data
+  }
+
+  // Mark Microsoft email as read
+  async markMicrosoftEmailRead(
+    userEmail: string,
+    messageId: string,
+    isRead: boolean = true
+  ): Promise<{ success: boolean; message: string }> {
+    const response = await this.api.post(this.withPrefix('/microsoft/mark-read'), {
+      user_email: userEmail,
+      message_id: messageId,
+      is_read: isRead,
+    })
+    return response.data
+  }
+
+  // Delete Microsoft email
+  async deleteMicrosoftEmail(
+    userEmail: string,
+    messageId: string
+  ): Promise<{ success: boolean; message: string }> {
+    const response = await this.api.post(this.withPrefix('/microsoft/delete'), {
+      user_email: userEmail,
+      message_id: messageId,
+    })
+    return response.data
+  }
+
+  // Get unread count for Microsoft mailbox
+  async getMicrosoftUnreadCount(
+    userEmail: string,
+    folder: string = 'inbox'
+  ): Promise<{ success: boolean; unread_count: number; folder: string }> {
+    const response = await this.api.get(this.withPrefix('/microsoft/unread-count'), {
+      params: { user_email: userEmail, folder }
+    })
+    return response.data
+  }
+
+  // ==================== Yahoo OAuth API ====================
+
+  // Check if Yahoo OAuth is configured
+  async checkYahooOAuthStatus(): Promise<{ configured: boolean; message: string }> {
+    const response = await this.api.get(this.withPrefix('/auth/yahoo/status'))
+    return response.data
+  }
+
+  // Get Yahoo OAuth authorization URL
+  async getYahooAuthUrl(isElectron: boolean = false): Promise<{ authorization_url: string; state: string; redirect_uri: string }> {
+    const response = await this.api.get(this.withPrefix('/auth/yahoo/login'), {
+      params: { is_electron: isElectron }
+    })
+    return response.data
+  }
+
+  // Exchange Yahoo OAuth code for tokens
+  async exchangeYahooCode(code: string, state: string): Promise<{
+    success: boolean
+    email: string
+    name: string
+    message: string
+  }> {
+    const response = await this.api.get(this.withPrefix('/auth/yahoo/callback'), {
+      params: { code, state }
+    })
+    return response.data
+  }
+
+  // Fetch emails via Yahoo Mail API
+  async fetchYahooEmails(
+    options: {
+      folder?: string
+      count?: number
+      offset?: number
+    } = {}
+  ): Promise<{
+    success: boolean
+    messages: Array<{
+      id: string
+      threadId: string
+      subject: string
+      from: { email: string; name: string }
+      to: Array<{ email: string; name: string }>
+      date: string
+      snippet: string
+      isRead: boolean
+      hasAttachment: boolean
+      provider: string
+    }>
+    total: number
+    count: number
+  }> {
+    const response = await this.api.get(this.withPrefix('/yahoo/mail/messages'), {
+      params: {
+        folder: options.folder || 'Inbox',
+        count: options.count || 20,
+        offset: options.offset || 0,
+      }
+    })
+    return response.data
+  }
+
+  // Get single Yahoo email by ID
+  async getYahooEmail(messageId: string): Promise<{
+    success: boolean
+    message: {
+      id: string
+      threadId: string
+      subject: string
+      from: { email: string; name: string }
+      to: Array<{ email: string; name: string }>
+      cc: Array<{ email: string; name: string }>
+      bcc: Array<{ email: string; name: string }>
+      date: string
+      body: string
+      bodyType: string
+      snippet: string
+      isRead: boolean
+      hasAttachment: boolean
+      attachments: any[]
+      provider: string
+    }
+  }> {
+    const response = await this.api.get(this.withPrefix(`/yahoo/mail/messages/${messageId}`))
+    return response.data
+  }
+
+  // Send email via Yahoo Mail API
+  async sendYahooEmail(
+    emailData: {
+      to: string[]
+      subject: string
+      body: string
+      cc?: string[]
+      bcc?: string[]
+      is_html?: boolean
+    }
+  ): Promise<{ success: boolean; message_id: string; provider: string }> {
+    const response = await this.api.post(this.withPrefix('/yahoo/mail/send'), emailData)
+    return response.data
+  }
+
+  // Mark Yahoo email as read
+  async markYahooEmailRead(messageId: string): Promise<{ success: boolean }> {
+    const response = await this.api.post(this.withPrefix(`/yahoo/mail/messages/${messageId}/read`))
+    return response.data
+  }
+
+  // Mark Yahoo email as unread
+  async markYahooEmailUnread(messageId: string): Promise<{ success: boolean }> {
+    const response = await this.api.post(this.withPrefix(`/yahoo/mail/messages/${messageId}/unread`))
+    return response.data
+  }
+
+  // Delete Yahoo email
+  async deleteYahooEmail(messageId: string): Promise<{ success: boolean }> {
+    const response = await this.api.delete(this.withPrefix(`/yahoo/mail/messages/${messageId}`))
+    return response.data
+  }
+
+  // Get Yahoo mail folders
+  async getYahooFolders(): Promise<{ success: boolean; folders: any[] }> {
+    const response = await this.api.get(this.withPrefix('/yahoo/mail/folders'))
+    return response.data
+  }
+
+  // Search Yahoo emails
+  async searchYahooEmails(
+    query: string,
+    options: {
+      count?: number
+      offset?: number
+    } = {}
+  ): Promise<{
+    success: boolean
+    messages: any[]
+    total: number
+  }> {
+    const response = await this.api.get(this.withPrefix('/yahoo/mail/search'), {
+      params: {
+        q: query,
+        count: options.count || 20,
+        offset: options.offset || 0,
+      }
+    })
+    return response.data
+  }
+
+  // Create Yahoo draft
+  async createYahooDraft(
+    draftData: {
+      to: string[]
+      subject: string
+      body: string
+      cc?: string[]
+      bcc?: string[]
+      is_html?: boolean
+    }
+  ): Promise<{ success: boolean; draft_id: string; provider: string }> {
+    const response = await this.api.post(this.withPrefix('/yahoo/mail/drafts'), draftData)
+    return response.data
+  }
 }
 
 export const apiService = new ApiService()
