@@ -881,49 +881,37 @@ export const MainDashboard: React.FC = () => {
         </div>
 
         {currentView === 'email' ? (
-          activeFolder === 'provider_inbox' || activeFolder === 'inbox' ? (
-            // Provider Email Inbox - render with viewer so clicks show email body
-            <div className="flex-1 min-w-0 h-full rounded-2xl overflow-hidden bg-gray-900 border border-gray-700 flex">
-              <div className="w-[28rem] flex-shrink-0 h-full border-r border-gray-700/60">
-                <ProviderEmailInbox 
-                  onEmailSelect={(email: SyncedEmail, accountId: string) => {
-                    // Convert synced email to dashboard format for viewing
-                    const dashboardEmail: DashboardEmail = {
-                      id: email.id,
-                      email_id: email.id,
-                      timestamp: email.timestamp,
-                      subject: email.subject,
-                      body: email.body_text,
-                      bodyHtml: email.body_html || undefined,
-                      bodyText: email.body_text,
-                      sender: email.from_name || email.from_address,
-                      sender_name: email.from_name,
-                      sender_email: email.from_address,
-                      senderName: email.from_name,
-                      senderEmail: email.from_address,
-                      to: email.to_address,
-                      recipient: email.to_address,
-                      isRead: email.is_read,
-                      is_read: email.is_read,
-                      read: email.is_read,
-                      securityLevel: 0,
-                      encrypted: false,
-                      requires_decryption: false,
-                    }
-                    setSelectedEmail(dashboardEmail)
-                  }}
-                />
-              </div>
-              <div className="flex-1 min-w-0 h-full">
-                <EmailViewer
-                  email={selectedEmail as any}
-                  onReply={handleReply}
-                  onReplyAll={handleReplyAll}
-                  onForward={handleForward}
-                  onDelete={handleDeleteEmail}
-                  onEmailDecrypted={handleEmailDecrypted}
-                />
-              </div>
+          activeFolder === 'provider_inbox' ? (
+            // Provider Email Inbox - shows emails from all configured IMAP/POP3 accounts
+            <div className="flex-1 min-w-0 h-full rounded-2xl overflow-hidden bg-gray-900 border border-gray-700">
+              <ProviderEmailInbox 
+                onEmailSelect={(email: SyncedEmail, accountId: string) => {
+                  // Convert synced email to dashboard format for viewing
+                  const dashboardEmail: DashboardEmail = {
+                    id: email.id,
+                    email_id: email.id,
+                    timestamp: email.timestamp,
+                    subject: email.subject,
+                    body: email.body_text,
+                    bodyHtml: email.body_html || undefined,
+                    bodyText: email.body_text,
+                    sender: email.from_name || email.from_address,
+                    sender_name: email.from_name,
+                    sender_email: email.from_address,
+                    senderName: email.from_name,
+                    senderEmail: email.from_address,
+                    to: email.to_address,
+                    recipient: email.to_address,
+                    isRead: email.is_read,
+                    is_read: email.is_read,
+                    read: email.is_read,
+                    securityLevel: 0,
+                    encrypted: false,
+                    requires_decryption: false,
+                  }
+                  setSelectedEmail(dashboardEmail)
+                }}
+              />
             </div>
           ) : (
             <>
