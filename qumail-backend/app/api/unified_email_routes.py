@@ -17,7 +17,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from ..services.unified_email_service import unified_email_service
 from ..services.multi_provider_email import ProviderEmailSettings, EmailMessage
-from ..core.database import get_database
+from ..mongo_database import get_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/unified-email", tags=["Unified Email"])

@@ -19,7 +19,7 @@ from ..services.multi_provider_email import (
 )
 from ..services.provider_registry import detect_provider
 from ..services.gmail_oauth import oauth_service
-from ..core.database import get_database
+from ..mongo_database import get_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/provider-email", tags=["Multi-Provider Email"])
