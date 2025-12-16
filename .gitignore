@@ -1,14 +1,11 @@
 # Dependency directories - Frontend
 qumail-frontend/node_modules/
+node_modules/
 
 # Python virtual environments - Backend
 qumail-backend/venv/
-
-
-# General fallback patterns
-qumail-frontend/node_modules/
+.venv/
 venv/
-
 
 # Python cache files
 __pycache__/
@@ -17,6 +14,9 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+*.egg-info/
+dist/
+build/
 
 # Frontend build artifacts
 qumail-frontend/dist/
@@ -35,12 +35,57 @@ out/
 *.db-wal
 *.log
 logs/
+*.sqlite
+*.sqlite3
 
-# Environment variables
+# ==========================================
+# SENSITIVE FILES - NEVER COMMIT THESE!
+# ==========================================
+
+# Environment files with secrets
+.env
 .env.local
 .env.*.local
+.env.production
+.env.development
+**/.env
+!.env.example
+!.env.template
+!**/.env.example
 
+# Google OAuth credentials
+client_secrets.json
+**/client_secrets.json
+credentials.json
+**/credentials.json
+token.json
+**/token.json
+
+# Private keys and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+certs/
+**/certs/
+
+# Raw keys directory
+raw_keys/
+**/raw_keys/
+
+# Security validation files
+*_security_validation_*.json
+qumail_security_validation_*.json
+
+# OAuth tokens and session data
+*.pickle
+**/tokens/
+
+# ==========================================
 # OS / editor cruft
+# ==========================================
 .DS_Store
 Thumbs.db
 *.swp
@@ -50,14 +95,25 @@ Thumbs.db
 .vscode/.ropeproject
 
 # IDE specific files
-.vscode/
 .idea/
 *.sublime-*
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
 
 # Package manager locks (optional - comment out if you want to track them)
 # package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
 
-# IMPORTANT: Include all .env files (DO NOT IGNORE)
-# !**/.env
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Mobile build artifacts
+qumail-mobile/.expo/
+qumail-mobile/ios/
+qumail-mobile/android/

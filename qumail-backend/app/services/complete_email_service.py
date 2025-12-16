@@ -70,26 +70,19 @@ class CompleteEmailService:
         try:
             logger.info(f"Sending encrypted email with security level {security_level}")
             
-            # ========== QUMAIL USER VERIFICATION ==========
-            # Only allow sending encrypted emails to registered QuMail users
-            # Non-QuMail users cannot decrypt quantum-encrypted emails
+            # ========== QUMAIL USER VERIFICATION (DISABLED) ==========
+            # Allow sending encrypted emails to any user
+            # Recipients can decrypt using the QuMail app when they register
             if db is not None:
                 user_repo = UserRepository(db)
                 
-                # Check if recipient is a registered QuMail user
+                # Check if recipient is a registered QuMail user (for logging only)
                 recipient_user = await user_repo.find_by_email(recipient_email)
                 
                 if not recipient_user:
-                    logger.warning(f"Recipient {recipient_email} is NOT a registered QuMail user - blocking encrypted email")
-                    return {
-                        'success': False,
-                        'error': 'recipient_not_qumail_user',
-                        'message': f"Cannot send encrypted email to {recipient_email}. Recipient is not a registered QuMail user and cannot decrypt quantum-encrypted emails. Please ask them to register at QuMail first.",
-                        'recipient_email': recipient_email
-                    }
-                
-                # UserDocument stores Mongo `_id` as `id`, so use that instead of a non-existent `user_id` attribute
-                logger.info(f"✓ Recipient {recipient_email} verified as QuMail user (ID: {recipient_user.id})")
+                    logger.info(f"Recipient {recipient_email} is not yet a QuMail user - sending anyway")
+                else:
+                    logger.info(f"✓ Recipient {recipient_email} verified as QuMail user (ID: {recipient_user.id})")
             else:
                 logger.warning("No database connection - skipping QuMail user verification")
             # ================================================
@@ -220,11 +213,11 @@ class CompleteEmailService:
             # ================================================
 
             # Create email record in database with encryption metadata
-            # Store auth_tag in metadata so it's available during decryption
+            # Store auth_tag and signature in metadata (both needed for Level 3)
             if encryption_result.get('auth_tag'):
                 metadata['auth_tag'] = encryption_result['auth_tag']
-            elif encryption_result.get('signature'):
-                # Fallback for legacy/RSA
+            if encryption_result.get('signature'):
+                # Level 3 needs BOTH auth_tag (AES-GCM) and signature (ML-DSA-87)
                 metadata['signature'] = encryption_result['signature']
             
             # Extract public keys for explicit MongoDB storage (Level 3 and 4)

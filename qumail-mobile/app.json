@@ -46,8 +46,8 @@
       "expo-secure-store"
     ],
     "extra": {
-      "apiUrl": "https://qumail-backend-gwec.onrender.com",
-      "googleClientIdWeb": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+      "apiUrl": "http://localhost:8000",
+      "googleClientIdWeb": "YOUR_WEB_CLIENT_ID.apps.googleusercontent.com",
       "googleClientIdIos": "YOUR_IOS_CLIENT_ID.apps.googleusercontent.com"
     }
   }

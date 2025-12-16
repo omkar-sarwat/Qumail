@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 
 load_dotenv()
-MONGODB_URI = os.getenv("DATABASE_URL", "mongodb+srv://user:password@cluster.mongodb.net/qumail?retryWrites=true&w=majority")
+MONGODB_URI = os.getenv("DATABASE_URL", "mongodb://127.0.0.1:27017/qumail?directConnection=true")
 
 async def check_mongodb_public_keys():
     print("=" * 70)

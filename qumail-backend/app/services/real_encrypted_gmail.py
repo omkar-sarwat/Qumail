@@ -80,14 +80,28 @@ class RealEncryptedGmailService:
             encryption_metadata = encryption_result.get("encryption_metadata", {})
             key_id = encryption_result.get("key_id", "") or encryption_metadata.get("key_id", "")
             
-            # Get key fragments, auth_tag, nonce from metadata
+            # Get key fragments, auth_tag, nonce, signature from metadata
             key_fragments = encryption_metadata.get("key_fragments", [])
             if not key_fragments and key_id:
                 key_fragments = [key_id]
             auth_tag = encryption_metadata.get("auth_tag", "")
+            signature = encryption_metadata.get("signature", "")  # Level 3 ML-DSA-87 signature
             nonce = encryption_metadata.get("nonce", "")
             salt = encryption_metadata.get("salt", "")
             plaintext_size = encryption_metadata.get("plaintext_size", 0) or encryption_metadata.get("required_size", 0)
+            
+            # Level 3 PQC specific metadata
+            kem_ciphertext = encryption_metadata.get("kem_ciphertext", "") or encryption_metadata.get("kyber_ciphertext", "")
+            kem_public_key = encryption_metadata.get("kem_public_key", "") or encryption_metadata.get("kyber_public_key", "")
+            dsa_public_key = encryption_metadata.get("dsa_public_key", "") or encryption_metadata.get("dilithium_public_key", "")
+            quantum_enhancement = encryption_metadata.get("quantum_enhancement", {})
+            private_key_ref = encryption_metadata.get("private_key_ref", "")
+            
+            # Level 4 RSA specific metadata
+            encrypted_session_key = encryption_metadata.get("encrypted_session_key", "")
+            public_key = encryption_metadata.get("public_key", "")
+            iv = encryption_metadata.get("iv", "")
+            aad = encryption_metadata.get("aad", "")
             
             logger.info(f"✅ Encryption complete!")
             logger.info(f"   Algorithm: {algorithm}")
@@ -128,12 +142,36 @@ class RealEncryptedGmailService:
                 mime_message.add_header('X-QuMail-Key-Fragments', json.dumps(key_fragments))
             if auth_tag:
                 mime_message.add_header('X-QuMail-Auth-Tag', auth_tag)
+            if signature:
+                mime_message.add_header('X-QuMail-Signature', signature)  # Level 3 ML-DSA-87 signature
             if nonce:
                 mime_message.add_header('X-QuMail-Nonce', nonce)
             if salt:
                 mime_message.add_header('X-QuMail-Salt', salt)
             if plaintext_size:
                 mime_message.add_header('X-QuMail-Plaintext-Size', str(plaintext_size))
+            
+            # Level 3 PQC specific headers
+            if kem_ciphertext:
+                mime_message.add_header('X-QuMail-KEM-Ciphertext', kem_ciphertext)
+            if kem_public_key:
+                mime_message.add_header('X-QuMail-KEM-Public-Key', kem_public_key)
+            if dsa_public_key:
+                mime_message.add_header('X-QuMail-DSA-Public-Key', dsa_public_key)
+            if quantum_enhancement:
+                mime_message.add_header('X-QuMail-Quantum-Enhancement', json.dumps(quantum_enhancement))
+            if private_key_ref:
+                mime_message.add_header('X-QuMail-Private-Key-Ref', private_key_ref)
+            
+            # Level 4 RSA specific headers
+            if encrypted_session_key:
+                mime_message.add_header('X-QuMail-Encrypted-Session-Key', encrypted_session_key)
+            if public_key:
+                mime_message.add_header('X-QuMail-Public-Key', public_key)
+            if iv:
+                mime_message.add_header('X-QuMail-IV', iv)
+            if aad:
+                mime_message.add_header('X-QuMail-AAD', aad)
             
             # Plain text part: Show encrypted data as text (gibberish in other mail clients)
             plain_text_content = self._create_encrypted_text_view(

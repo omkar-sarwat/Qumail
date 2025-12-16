@@ -338,9 +338,11 @@ async def encrypt_pqc(content: str, user_email: str, receiver_email: str = "") -
         if quantum_enhancement["enabled"]:
             ikm = kem_shared_secret + quantum_enhancement["enhancement_material"]
             info = f"QuMail-PQC-MLKEM-Enhanced-{flow_id}".encode('utf-8')
+            logger.info(f"   IKM length: {len(ikm)} bytes (KEM: {len(kem_shared_secret)}, Enhancement: {len(quantum_enhancement['enhancement_material'])})")
         else:
             ikm = kem_shared_secret
             info = f"QuMail-PQC-MLKEM-{flow_id}".encode('utf-8')
+            logger.info(f"   IKM length: {len(ikm)} bytes (KEM only)")
         
         salt = secrets.token_bytes(32)
         hkdf = HKDF(
@@ -351,7 +353,7 @@ async def encrypt_pqc(content: str, user_email: str, receiver_email: str = "") -
             backend=default_backend()
         )
         aes_key = hkdf.derive(ikm)
-        logger.info(f"   ✓ Derived AES-256 session key via HKDF")
+        logger.info(f"   ✓ Derived AES-256 session key via HKDF (first 8 bytes hex: {aes_key[:8].hex()})")
         
         # Step 6: Encrypt with AES-256-GCM
         nonce = secrets.token_bytes(12)
@@ -526,8 +528,9 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
                 local_key2 = local_km.get_key_by_id(key_ids["km2"]) if key_ids.get("km2") else None
                 
                 if local_key1 and local_key2:
-                    km1_key_data = local_key1["key_material"]
-                    km2_key_data = local_key2["key_material"]
+                    # Use only first 16 bytes of each key, matching encryption behavior
+                    km1_key_data = local_key1["key_material"][:16]
+                    km2_key_data = local_key2["key_material"][:16]
                     
                     # Mark as consumed
                     local_km.consume_key(key_ids["km1"])
@@ -551,7 +554,8 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
                         km2_key_data = key_dict.get(key_ids["km2"])
                         
                         if km1_key_data and km2_key_data:
-                            enhancement_material = km1_key_data + km2_key_data
+                            # Use only first 16 bytes of each key, matching encryption behavior
+                            enhancement_material = km1_key_data[:16] + km2_key_data[:16]
                             quantum_enhanced_actual = True
                             logger.info(f"   ✓ Quantum enhancement keys retrieved from MAIN KME")
                             
@@ -574,10 +578,12 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
             ikm = kem_shared_secret + enhancement_material
             info = f"QuMail-PQC-MLKEM-Enhanced-{flow_id}".encode('utf-8')
             logger.info(f"   Using quantum-enhanced key derivation")
+            logger.info(f"   IKM length: {len(ikm)} bytes (KEM: {len(kem_shared_secret)}, Enhancement: {len(enhancement_material)})")
         else:
             ikm = kem_shared_secret
             info = f"QuMail-PQC-MLKEM-{flow_id}".encode('utf-8')
             logger.info(f"   Using standard key derivation (no quantum enhancement)")
+            logger.info(f"   IKM length: {len(ikm)} bytes (KEM only)")
         
         hkdf = HKDF(
             algorithm=hashes.SHA256(),
@@ -587,7 +593,7 @@ async def decrypt_pqc(encrypted_content: str, user_email: str, metadata: Dict[st
             backend=default_backend()
         )
         aes_key = hkdf.derive(ikm)
-        logger.info(f"   ✓ Derived AES-256 session key")
+        logger.info(f"   ✓ Derived AES-256 session key (first 8 bytes hex: {aes_key[:8].hex()})")
         
         # Step 6: Decrypt with AES-256-GCM
         cipher = Cipher(algorithms.AES(aes_key), modes.GCM(nonce, auth_tag), backend=default_backend())

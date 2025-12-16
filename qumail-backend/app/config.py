@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, alias="DEBUG")
 
     database_url: str = Field(
-        default="mongodb+srv://user:password@cluster.mongodb.net/qumail?retryWrites=true&w=majority",
+        default="mongodb://127.0.0.1:27017/qumail?directConnection=true",
         alias="DATABASE_URL",
     )
     fallback_database_url: str = Field(
