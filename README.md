@@ -1,167 +1,412 @@
-# QuMail Secure Email with Quantum Key Distribution
+# 🔐 QuMail - Quantum-Secure Email System
 
-This project implements a secure email system featuring quantum key distribution (QKD) for enhanced security. The system follows the ETSI QKD standard and includes three main components:
+<div align="center">
 
-1. **QKD Key Management Entity (KME) Servers** - Based on the ETSI standard
-2. **Backend API** - FastAPI server that handles email processing and quantum key integration
-3. **Frontend Client** - React application that provides the user interface
+![QuMail Logo](qumail-mobile/assets/qumail-logo.png)
 
-## System Architecture
+**The World's First Quantum Key Distribution (QKD) Secured Email Platform**
 
-The system consists of the following components working together:
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
+[![React](https://img.shields.io/badge/react-18+-61DAFB.svg)](https://reactjs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com)
+[![ETSI QKD 014](https://img.shields.io/badge/ETSI-QKD%20014-green.svg)](https://www.etsi.org)
 
-- **KME Servers**: Two KME servers (Alice and Bob) communicate with each other to establish quantum keys
-- **Backend Server**: Integrates with the KME servers to provide quantum-secured email functionality
-- **Frontend Client**: React application that allows users to send and receive quantum-secured emails
+[Features](#-features) • [Architecture](#-system-architecture) • [Installation](#-installation) • [Usage](#-usage) • [Security](#-security-levels) • [API](#-api-documentation)
 
-## Requirements
+</div>
 
-- Rust (for KME servers)
-- Python 3.8+ (for backend)
-- Node.js 16+ (for frontend)
-- PowerShell (for startup scripts)
+---
 
-## Getting Started
+## 📖 Overview
 
-### Option 1: Start All Components Together
+QuMail is a cutting-edge secure email platform that leverages **Quantum Key Distribution (QKD)** technology to provide unprecedented levels of email security. Built following the **ETSI QKD 014 standard**, QuMail offers multiple encryption levels including quantum One-Time Pad (OTP), AES-256-GCM with quantum enhancement, and Post-Quantum Cryptography (PQC).
 
-To start the entire system (KME servers, backend, and frontend) with a single command:
+### 🎯 Problem Statement
 
-```powershell
-.\start_all.ps1
+Traditional email encryption relies on mathematical complexity that could be broken by future quantum computers. QuMail solves this by using:
+- **Quantum keys** that are physically impossible to intercept without detection
+- **Post-quantum algorithms** resistant to quantum computer attacks
+- **Multiple fallback layers** ensuring security even without quantum hardware
+
+---
+
+## ✨ Features
+
+### 🔒 Security Features
+- **4 Encryption Levels** - From quantum OTP to hybrid RSA+AES
+- **ETSI QKD 014 Compliant** - Industry standard quantum key management
+- **End-to-End Encryption** - Messages encrypted before leaving your device
+- **Zero-Knowledge Architecture** - Server never sees plaintext content
+
+### 📧 Email Features
+- **Gmail Integration** - Seamless OAuth2 authentication
+- **Rich Text Editor** - Full formatting support with attachments
+- **Offline Support** - Read and compose emails without internet
+- **Cross-Platform** - Web, Desktop (Electron), and Mobile (React Native)
+
+### 🎨 User Experience
+- **Modern Dark UI** - Beautiful, eye-friendly interface
+- **Real-time Sync** - Instant email updates
+- **Smart Compose** - Auto-suggestions and templates
+- **Security Indicators** - Visual encryption level badges
+
+---
+
+## 📸 Screenshots
+
+### Login Screen
+*Secure Google OAuth authentication with quantum branding*
+
+![Login Screen](docs/screenshots/login.png)
+
+### Main Dashboard
+*Email inbox with encryption level indicators and quantum status*
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+### Compose Email
+*Rich text editor with security level selector*
+
+![Compose Email](docs/screenshots/compose.png)
+
+### Quantum Security Panel
+*Real-time quantum key status and encryption details*
+
+![Security Panel](docs/screenshots/security-panel.png)
+
+### Email Decryption
+*Secure decryption with authentication verification*
+
+![Decryption](docs/screenshots/decrypt.png)
+
+### Mobile App
+*Native mobile experience for iOS and Android*
+
+![Mobile App](docs/screenshots/mobile.png)
+
+---
+
+## 🏗 System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           QuMail System Architecture                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐                │
+│  │   Frontend  │     │   Backend   │     │  KME Servers │                │
+│  │   (React)   │◄───►│  (FastAPI)  │◄───►│ (ETSI QKD)  │                │
+│  └─────────────┘     └─────────────┘     └─────────────┘                │
+│        │                    │                    │                        │
+│        │                    │                    │                        │
+│        ▼                    ▼                    ▼                        │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐                │
+│  │  Electron   │     │  MongoDB    │     │   Quantum   │                │
+│  │   Desktop   │     │  (Storage)  │     │   Keys Pool │                │
+│  └─────────────┘     └─────────────┘     └─────────────┘                │
+│        │                    │                                            │
+│        │                    │                                            │
+│        ▼                    ▼                                            │
+│  ┌─────────────┐     ┌─────────────┐                                    │
+│  │   Mobile    │     │ Gmail API   │                                    │
+│  │ (React Nat) │     │ (OAuth2)    │                                    │
+│  └─────────────┘     └─────────────┘                                    │
+│                                                                           │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-This script will:
-1. Start both KME servers
-2. Start the backend API server
-3. Start the frontend development server
-4. Open the application in your default web browser
+### Component Overview
 
-### Option 2: Start Components Separately
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **Frontend** | React 18 + TypeScript + Vite | Web interface with TailwindCSS |
+| **Desktop** | Electron 27 | Native desktop app with SQLite |
+| **Mobile** | React Native + Expo | iOS and Android apps |
+| **Backend** | FastAPI + Python 3.10+ | REST API and encryption services |
+| **Database** | MongoDB Atlas | Cloud-hosted email and key storage |
+| **KME Servers** | Python + ETSI QKD 014 | Quantum key management entities |
 
-If you prefer to start each component separately:
+---
 
-1. Start the KME servers:
-```powershell
-.\start_kme_servers.ps1
+## 🔐 Security Levels
+
+QuMail implements four distinct security levels:
+
+### Level 1: Quantum One-Time Pad (OTP) 🟢
+```
+Security: UNCONDITIONAL (Information-theoretic security)
+Key Source: QKD-generated quantum keys
+Algorithm: XOR with true random key
+Use Case: Maximum security communications
 ```
 
-2. Start the backend and frontend:
-```powershell
-.\start_qumail.ps1
+### Level 2: Quantum AES-256-GCM 🔵
+```
+Security: VERY HIGH (256-bit quantum-enhanced)
+Key Source: HKDF with quantum entropy
+Algorithm: AES-256-GCM authenticated encryption
+Use Case: High-volume secure emails
 ```
 
-## System URLs
+### Level 3: Post-Quantum Cryptography (PQC) 🟣
+```
+Security: HIGH (Quantum-resistant)
+Key Source: ML-KEM-1024 (Kyber) key encapsulation
+Algorithm: ML-DSA-87 (Dilithium) + AES-256-GCM
+Use Case: Future-proof encryption
+```
 
-After starting the system, the following services will be available:
+### Level 4: Hybrid RSA + AES 🟡
+```
+Security: STANDARD (Legacy compatible)
+Key Source: RSA-4096 key exchange
+Algorithm: RSA-OAEP + AES-256-GCM
+Use Case: Compatibility fallback
+```
 
-- **Frontend**: [http://localhost:3000](http://localhost:3000)
-- **Backend API**: [http://localhost:8001](http://localhost:8001)
-- **KME1 Debug Interface**: [http://localhost:18080](http://localhost:18080)
-- **KME1 API**: https://localhost:13000
-- **KME2 API**: https://localhost:14000
+---
 
-## Usage Instructions
+## 🚀 Installation
 
-1. Open the frontend URL ([http://localhost:3000](http://localhost:3000))
-2. Log in with your credentials
-3. Navigate to the Quantum Dashboard to view and manage quantum keys
-4. When composing emails, the system will automatically check for available quantum keys for encryption
-5. The system supports multiple encryption methods based on quantum key availability:
-   - One-Time Pad (highest security, requires quantum keys)
-   - Quantum-aided AES (high security, uses quantum randomness)
-   - Post-quantum cryptography (fallback if quantum keys are unavailable)
+### Prerequisites
 
-## Testing the System
+- **Python 3.10+** with pip
+- **Node.js 18+** with npm
+- **MongoDB** (local or Atlas)
+- **Git**
 
-We've added several test scripts to help you verify the system is working correctly:
+### Quick Start
 
-### Running Tests
+```bash
+# Clone the repository
+git clone https://github.com/omkarsarswat/Qumail_.git
+cd Qumail_
 
-1. **Run all tests** - Tests KME connections and all encryption levels:
-   ```
-   # Windows
-   run_tests.bat
-   
-   # Linux/macOS
-   ./run_tests.sh
-   ```
+# Setup backend
+cd qumail-backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env with your credentials
 
-2. **Test KME server connections**:
-   ```
-   python test_km_connections.py
-   ```
+# Setup frontend
+cd ../qumail-frontend
+npm install
+cp .env.example .env
+# Edit .env with your settings
 
-3. **Test all encryption levels**:
-   ```
-   cd qumail-backend
-   python test_all_encryption.py
-   ```
+# Start KME servers (in separate terminals)
+cd ../next-door-key-simulator
+pip install -r requirements.txt
+python app.py  # KME1 on port 8010
 
-4. **Test only post-quantum encryption**:
-   ```
-   cd qumail-backend
-   python test_pqc.py
-   ```
+# Start backend
+cd ../qumail-backend
+uvicorn app.main:app --reload --port 8000
 
-### Security Levels
+# Start frontend
+cd ../qumail-frontend
+npm run dev
+```
 
-The system implements four levels of security:
+### Environment Configuration
 
-1. **Level 1 (OTP)**: Quantum One-Time Pad - unconditionally secure with quantum keys
-2. **Level 2 (AES-256-GCM)**: AES with quantum-enhanced key derivation
-3. **Level 3 (PQC)**: Post-Quantum Cryptography using Kyber1024 and Dilithium5
-4. **Level 4 (RSA+AES)**: Hybrid RSA+AES for legacy compatibility
+Create `.env` files from the examples:
 
-## Troubleshooting
+**Backend (`qumail-backend/.env`):**
+```env
+# Database
+DATABASE_URL=mongodb+srv://user:password@cluster.mongodb.net/qumail
 
-If you encounter issues:
+# Google OAuth
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:5173/auth/callback
 
-1. Check that all required ports are available (3000, 8001, 13000, 14000, 18080)
-2. Ensure all dependencies are installed (Rust, Python, Node.js, liboqs optional)
-3. Check the KME debug interface for quantum key status
-4. If the KME servers fail to start, check that the raw key files are present in the specified directories
-5. For Post-Quantum Cryptography, the system can work with or without the liboqs library
+# Security Keys (generate your own!)
+SECRET_KEY=your-secret-key-min-32-chars
+ENCRYPTION_MASTER_KEY=your-fernet-key
 
-## Components in Detail
+# KME Servers
+KM1_BASE_URL=https://qumail-kme1-pmsy.onrender.com
+KM2_BASE_URL=https://qumail-kme2-pmsy.onrender.com
+```
 
-### QKD KME Server
+**Frontend (`qumail-frontend/.env`):**
+```env
+VITE_API_URL=http://localhost:8000
+VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+```
 
-The KME server implements the ETSI QKD standard, managing quantum keys between secure application entities (SAEs). It:
-- Monitors directories for new quantum key files
-- Establishes secure connections between KMEs
-- Provides APIs for key status and retrieval
-- Authenticates SAEs using SSL certificates
+---
 
-### Backend API
+## 📱 Usage
 
-The backend provides:
-- Email processing and storage
-- Integration with the KME servers for quantum key retrieval
-- Multiple encryption methods depending on key availability
-- User authentication and management
+### Sending an Encrypted Email
 
-### Frontend Client
+1. **Login** with your Google account
+2. Click **Compose** to create a new email
+3. Select your desired **Security Level** (1-4)
+4. Write your message and click **Send**
+5. The email is encrypted before transmission
 
-The frontend provides:
-- User authentication
-- Email composition and viewing
-- Quantum dashboard for key management
-- Visual indicators of encryption status
+### Reading an Encrypted Email
 
-## Quantum Security Features
+1. Open an email from your inbox
+2. Click **Decrypt** button
+3. Authenticate if required (for high-security levels)
+4. View the decrypted content
 
-The system implements multiple layers of quantum security:
+### Checking Quantum Key Status
 
-1. **Quantum Key Distribution (QKD)**: Uses quantum physics to generate and distribute secure keys
-2. **One-Time Pad Encryption**: When available, uses QKD keys for theoretically unbreakable encryption
-3. **Quantum-Aided AES**: Uses quantum randomness to strengthen AES encryption
-4. **Post-Quantum Cryptography**: Implements algorithms resistant to quantum computer attacks
+1. Navigate to **Settings > Quantum Security**
+2. View available quantum keys
+3. Monitor key consumption and generation
 
-## Contributing
+---
 
-Contributions to any component of the system are welcome. Please ensure you understand the ETSI QKD standard before making changes to the KME server components.
+## 🌐 API Documentation
 
-## License
+### Authentication Endpoints
 
-This project is licensed under the terms provided in the LICENSE file of each component.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/auth/google` | Start OAuth flow |
+| POST | `/api/v1/auth/callback` | Handle OAuth callback |
+| POST | `/api/v1/auth/refresh` | Refresh access token |
+| POST | `/api/v1/auth/logout` | Logout user |
+
+### Email Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/emails/inbox` | Get inbox emails |
+| GET | `/api/v1/emails/{id}` | Get single email |
+| POST | `/api/v1/emails/send/quantum` | Send encrypted email |
+| POST | `/api/v1/emails/{id}/decrypt` | Decrypt email |
+
+### Quantum Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/quantum/status` | Get quantum system status |
+| GET | `/api/v1/quantum/keys/available` | Check key availability |
+| POST | `/api/v1/encryption/encrypt` | Encrypt content |
+| POST | `/api/v1/encryption/decrypt` | Decrypt content |
+
+Full API documentation available at: `http://localhost:8000/docs`
+
+---
+
+## 🧪 Testing
+
+```bash
+# Run backend tests
+cd qumail-backend
+pytest tests/ -v
+
+# Run encryption level tests
+python -m pytest tests/test_optimized_km_all_levels.py -v
+
+# Test KME connections
+python quick_check_kme.py
+
+# Run frontend tests
+cd qumail-frontend
+npm test
+```
+
+---
+
+## 📂 Project Structure
+
+```
+Qumail_/
+├── qumail-backend/          # FastAPI backend server
+│   ├── app/
+│   │   ├── api/             # API route handlers
+│   │   ├── services/        # Business logic
+│   │   │   ├── encryption/  # Encryption implementations
+│   │   │   └── ...
+│   │   ├── models/          # Database models
+│   │   └── config.py        # Configuration
+│   ├── tests/               # Backend tests
+│   └── requirements.txt
+│
+├── qumail-frontend/         # React frontend
+│   ├── src/
+│   │   ├── components/      # UI components
+│   │   ├── services/        # API services
+│   │   ├── stores/          # State management
+│   │   └── ...
+│   ├── electron/            # Electron desktop app
+│   └── package.json
+│
+├── qumail-mobile/           # React Native mobile app
+│   ├── app/                 # App screens
+│   └── components/          # Mobile components
+│
+├── next-door-key-simulator/ # ETSI QKD KME servers
+│   ├── app.py               # KME server
+│   ├── server/              # Server implementation
+│   └── router/              # API routes
+│
+└── docs/                    # Documentation
+    └── screenshots/         # Application screenshots
+```
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Guidelines
+
+- Follow PEP 8 for Python code
+- Use ESLint/Prettier for TypeScript
+- Write tests for new features
+- Update documentation as needed
+
+---
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- **ETSI QKD Industry Specification Group** - For the QKD 014 standard
+- **NIST** - For post-quantum cryptography standards
+- **Open Quantum Safe (liboqs)** - For PQC implementations
+- **Google** - For Gmail API and OAuth services
+
+---
+
+## 📞 Contact
+
+**Team CryptoNova** - Smart India Hackathon 2025
+
+- **Project Lead**: Omkar Sarswat
+- **GitHub**: [@omkarsarswat](https://github.com/omkarsarswat)
+- **Email**: sarswatomkar9421@gmail.com
+
+---
+
+<div align="center">
+
+**Built with ❤️ for a quantum-secure future**
+
+⭐ Star this repository if you find it useful!
+
+</div>
