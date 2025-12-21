@@ -4,7 +4,7 @@ services:
     plan: free
     runtime: docker
     region: oregon
-    repo: https://github.com/omkarsarswat/FULL
+    repo: https://github.com/omkar-sarwat/Qumail
     branch: main
     autoDeploy: true
     rootDir: next-door-key-simulator
@@ -50,7 +50,7 @@ services:
     plan: free
     runtime: docker
     region: oregon
-    repo: https://github.com/omkarsarswat/FULL
+    repo: https://github.com/omkar-sarwat/Qumail
     branch: main
     autoDeploy: true
     rootDir: next-door-key-simulator
@@ -96,7 +96,7 @@ services:
     plan: free
     env: python
     region: oregon
-    repo: https://github.com/omkarsarswat/FULL
+    repo: https://github.com/omkar-sarwat/Qumail
     branch: main
     autoDeploy: true
     rootDir: qumail-backend
