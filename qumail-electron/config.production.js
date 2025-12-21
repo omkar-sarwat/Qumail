@@ -1,4 +1,4 @@
 module.exports = {
-  apiBaseUrl: 'https://qumail-backend.onrender.com/api/v1',
+  apiBaseUrl: 'https://qumail-backend-8ttg.onrender.com/api/v1',
   oauthRedirect: 'qumail://auth/callback'
 };

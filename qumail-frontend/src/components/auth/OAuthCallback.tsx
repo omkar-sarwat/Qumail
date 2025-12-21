@@ -104,7 +104,7 @@ export const OAuthCallback: React.FC<OAuthCallbackProps> = ({ onAuthComplete }) 
         
         // Initialize quantum key pool
         try {
-          const response = await fetch('https://qumail-backend-gwec.onrender.com/api/v1/emails/quantum/pool/initialize', {
+          const response = await fetch('https://qumail-backend-8ttg.onrender.com/api/v1/emails/quantum/pool/initialize', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${localStorage.getItem('authToken')}`,

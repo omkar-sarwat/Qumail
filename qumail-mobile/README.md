@@ -129,7 +129,7 @@ Update `src/services/config.ts` to change the backend URL:
 
 ```typescript
 export const API_CONFIG = {
-  BASE_URL: 'https://qumail-backend-gwec.onrender.com',
+  BASE_URL: 'https://qumail-backend-8ttg.onrender.com',
   // ...
 };
 ```
@@ -160,7 +160,7 @@ The Google Client ID is configured in `app.json`:
 
 Currently the app uses mock data for demonstration. To connect to the real QuMail backend:
 
-1. Ensure the backend is running at `https://qumail-backend-gwec.onrender.com`
+1. Ensure the backend is running at `https://qumail-backend-8ttg.onrender.com`
 2. Update the auth store to use real Google OAuth via `expo-auth-session`
 3. Replace mock email data with API calls in the email store
 

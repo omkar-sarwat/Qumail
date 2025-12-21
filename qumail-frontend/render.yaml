@@ -6,7 +6,7 @@ services:
     staticPublishPath: ./dist
     envVars:
       - key: VITE_API_URL
-        value: https://qumail-backend-gwec.onrender.com
+        value: https://qumail-backend-8ttg.onrender.com
     headers:
       - path: /*
         name: Cache-Control

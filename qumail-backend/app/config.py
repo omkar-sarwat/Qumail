@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")
     google_client_secret: str = Field(default="", alias="GOOGLE_CLIENT_SECRET")
-    google_redirect_uri: str = Field(default="https://qumail-backend-8ttg.onrender.com/auth/callback", alias="GOOGLE_REDIRECT_URI")
+    google_redirect_uri: str = Field(default="https://qumail-backend-8ttg.onrender.com/api/v1/auth/google/callback", alias="GOOGLE_REDIRECT_URI")
 
     km1_base_url: str = Field(default="https://qumail-kme1-xujk.onrender.com", alias="KM1_BASE_URL")
     km2_base_url: str = Field(default="https://qumail-kme2-c341.onrender.com", alias="KM2_BASE_URL")

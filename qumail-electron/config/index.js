@@ -1,5 +1,5 @@
 const defaultConfig = {
-  apiBaseUrl: 'https://qumail-backend-gwec.onrender.com/api/v1',
+  apiBaseUrl: 'https://qumail-backend-8ttg.onrender.com/api/v1',
   oauthRedirect: 'http://localhost:3000/auth/callback'
 };
 
