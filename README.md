@@ -230,8 +230,8 @@ SECRET_KEY=your-secret-key-min-32-chars
 ENCRYPTION_MASTER_KEY=your-fernet-key
 
 # KME Servers
-KM1_BASE_URL=https://qumail-kme1-pmsy.onrender.com
-KM2_BASE_URL=https://qumail-kme2-pmsy.onrender.com
+KM1_BASE_URL=https://qumail-kme1-xujk.onrender.com
+KM2_BASE_URL=https://qumail-kme2-c341.onrender.com
 ```
 
 **Frontend (`qumail-frontend/.env`):**

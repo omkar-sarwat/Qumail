@@ -42,7 +42,7 @@ services:
       - key: NETWORK_TIMEOUT
         value: "60"
       - key: OTHER_KMES
-        value: https://qumail-kme2-pmsy.onrender.com
+        value: https://qumail-kme2-c341.onrender.com
     healthCheckPath: /api/v1/kme/status
 
   - type: web
@@ -88,7 +88,7 @@ services:
       - key: NETWORK_TIMEOUT
         value: "60"
       - key: OTHER_KMES
-        value: https://qumail-kme1-pmsy.onrender.com
+        value: https://qumail-kme1-xujk.onrender.com
     healthCheckPath: /api/v1/kme/status
 
   - type: web
@@ -108,9 +108,9 @@ services:
       - key: REDIS_URL
         value: redis://default:password@redis-xxxxx.cloud.redislabs.com:12345
       - key: KME1_URL
-        value: https://qumail-kme1-pmsy.onrender.com
+        value: https://qumail-kme1-xujk.onrender.com
       - key: KME2_URL
-        value: https://qumail-kme2-pmsy.onrender.com
+        value: https://qumail-kme2-c341.onrender.com
       - key: GOOGLE_CLIENT_ID
         value: your-google-client-id.apps.googleusercontent.com
       - key: GOOGLE_CLIENT_SECRET

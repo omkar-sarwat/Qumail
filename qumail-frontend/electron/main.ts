@@ -34,11 +34,11 @@ if (isDev) {
 }
 
 // Backend URL - always use Render backend (no local backend needed)
-const BACKEND_URL = 'https://qumail-backend-gwec.onrender.com'
+const BACKEND_URL = 'https://qumail-backend-8ttg.onrender.com'
 
 // KME servers are on Render (cloud) - not local
-const KME1_URL = 'https://qumail-kme1-pmsy.onrender.com'
-const KME2_URL = 'https://qumail-kme2-pmsy.onrender.com'
+const KME1_URL = 'https://qumail-kme1-xujk.onrender.com'
+const KME2_URL = 'https://qumail-kme2-c341.onrender.com'
 
 // Check if Render backend is available (no local backend needed)
 async function checkBackendServer(): Promise<void> {

@@ -9,9 +9,9 @@ services:
       - key: PYTHON_VERSION
         value: "3.11"
       - key: KM1_BASE_URL
-        value: https://qumail-kme1-pmsy.onrender.com
+        value: https://qumail-kme1-xujk.onrender.com
       - key: KM2_BASE_URL
-        value: https://qumail-kme2-pmsy.onrender.com
+        value: https://qumail-kme2-c341.onrender.com
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
