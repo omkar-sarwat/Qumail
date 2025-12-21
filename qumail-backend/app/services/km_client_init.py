@@ -15,8 +15,8 @@ def create_optimized_km_clients():
     """Create optimized KM clients for QuMail-KMS with SSL/TLS or HTTP"""
     
     # Get URLs from environment variables - Use Render cloud KME servers
-    km1_base_url = os.getenv("KM1_BASE_URL", "https://qumail-kme1-pmsy.onrender.com")
-    km2_base_url = os.getenv("KM2_BASE_URL", "https://qumail-kme2-pmsy.onrender.com")
+    km1_base_url = os.getenv("KM1_BASE_URL", "https://qumail-kme1-xujk.onrender.com")
+    km2_base_url = os.getenv("KM2_BASE_URL", "https://qumail-kme2-c341.onrender.com")
     
     # Base directory for the project
     base_dir = Path(__file__).parent.parent.parent.parent
