@@ -14,7 +14,7 @@
 
 **Enterprise-grade email encryption powered by Quantum Key Distribution (QKD) technology**
 
-[Live Demo](https://qumail-frontend.onrender.com) · [API Docs](https://qumail-backend-8ttg.onrender.com/docs) · [Report Bug](https://github.com/omkarsarswat/Qumail_/issues)
+[Features](#key-features) · [Architecture](#system-architecture) · [Installation](#getting-started) · [API](#api-reference) · [Security](#security-implementation)
 
 ---
 
